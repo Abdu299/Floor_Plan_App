@@ -1,0 +1,6 @@
+@FloorPlan.Api_HostAddress = http://localhost:5131
+
+GET {{FloorPlan.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

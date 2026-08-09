@@ -1,0 +1,1137 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+
+  background: #f4f6f8;
+
+  font-family:
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  color: #1d2939;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app {
+  min-height: 100vh;
+  width: 100%;
+}
+
+
+/* ------------------------------------------------------- */
+/* Header */
+/* ------------------------------------------------------- */
+
+.header {
+  background: #ffffff;
+
+  border-bottom: 1px solid #e4e7ec;
+
+  padding: 28px 40px;
+}
+
+.header h1 {
+  margin: 0 0 8px;
+
+  font-size: 32px;
+  font-weight: 700;
+
+  color: #101828;
+}
+
+.header p {
+  margin: 0;
+
+  font-size: 18px;
+
+  color: #475467;
+}
+
+
+/* ------------------------------------------------------- */
+/* Main */
+/* ------------------------------------------------------- */
+
+.main {
+  width: min(
+    1200px,
+    calc(100% - 40px)
+  );
+
+  margin: 32px auto 80px;
+}
+
+
+/* ------------------------------------------------------- */
+/* Upload */
+/* ------------------------------------------------------- */
+
+.upload-card {
+  background: #ffffff;
+
+  border: 1px solid #e4e7ec;
+
+  border-radius: 14px;
+
+  padding: 28px;
+
+  margin-bottom: 28px;
+
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.upload-card h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+
+  font-size: 28px;
+
+  color: #101828;
+}
+
+.upload-card input {
+  display: block;
+
+  margin-bottom: 16px;
+
+  color: #101828;
+}
+
+.selected-file {
+  margin: 12px 0 18px;
+
+  font-size: 16px;
+
+  color: #475467;
+}
+
+.upload-card button {
+  border: 0;
+
+  border-radius: 10px;
+
+  padding: 12px 22px;
+
+  background: #101828;
+
+  color: #ffffff;
+
+  cursor: pointer;
+
+  font-weight: 600;
+
+  font-size: 16px;
+}
+
+.upload-card button:hover:not(:disabled) {
+  background: #0c1526;
+}
+
+.upload-card button:disabled {
+  opacity: 0.6;
+
+  cursor: not-allowed;
+}
+
+
+/* ------------------------------------------------------- */
+/* Error */
+/* ------------------------------------------------------- */
+
+.error {
+  margin-top: 16px;
+
+  padding: 12px 14px;
+
+  background: #fff2f0;
+
+  border: 1px solid #fecdca;
+
+  border-radius: 8px;
+
+  color: #b42318;
+}
+
+
+/* ------------------------------------------------------- */
+/* Result */
+/* ------------------------------------------------------- */
+
+.result {
+  background: #ffffff;
+
+  border: 1px solid #e4e7ec;
+
+  border-radius: 14px;
+
+  padding: 28px;
+
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.04);
+}
+
+.result-header {
+  display: flex;
+
+  justify-content: space-between;
+
+  align-items: flex-start;
+
+  gap: 20px;
+
+  margin-bottom: 24px;
+}
+
+.result-header h2 {
+  margin: 0 0 6px;
+
+  font-size: 30px;
+
+  font-weight: 700;
+
+  color: #101828;
+}
+
+.result-header p {
+  margin: 0;
+
+  font-size: 16px;
+
+  color: #475467;
+}
+
+.revision-info {
+  background: #f2f4f7;
+
+  color: #344054;
+
+  padding: 8px 12px;
+
+  border-radius: 8px;
+
+  font-size: 14px;
+
+  font-weight: 600;
+
+  white-space: nowrap;
+}
+
+
+/* ------------------------------------------------------- */
+/* Summary */
+/* ------------------------------------------------------- */
+
+.summary {
+  display: grid;
+
+  grid-template-columns:
+    repeat(4, minmax(0, 1fr));
+
+  gap: 14px;
+
+  margin-bottom: 20px;
+}
+
+.summary-item {
+  display: flex;
+
+  flex-direction: column;
+
+  align-items: center;
+
+  justify-content: center;
+
+  background: #f9fafb;
+
+  border: 1px solid #eaecf0;
+
+  border-radius: 10px;
+
+  padding: 18px 16px;
+
+  min-height: 110px;
+}
+
+.summary-item strong {
+  font-size: 40px;
+
+  font-weight: 700;
+
+  color: #101828;
+
+  line-height: 1;
+
+  margin-bottom: 10px;
+}
+
+.summary-item span {
+  color: #475467;
+
+  font-size: 18px;
+
+  font-weight: 500;
+}
+
+
+/* ------------------------------------------------------- */
+/* Detection legend */
+/* ------------------------------------------------------- */
+
+.detection-legend {
+  display: flex;
+
+  flex-wrap: wrap;
+
+  gap: 18px;
+
+  margin-bottom: 16px;
+
+  padding: 12px 16px;
+
+  background: #f9fafb;
+
+  border: 1px solid #eaecf0;
+
+  border-radius: 10px;
+}
+
+.detection-legend > div {
+  display: flex;
+
+  align-items: center;
+
+  gap: 7px;
+
+  font-size: 14px;
+
+  font-weight: 500;
+
+  color: #344054;
+}
+
+.legend-color {
+  display: inline-block;
+
+  width: 13px;
+
+  height: 13px;
+
+  border-radius: 3px;
+}
+
+.room-color {
+  background: #16a34a;
+}
+
+.door-color {
+  background: #dc2626;
+}
+
+.window-color {
+  background: #2563eb;
+}
+
+.opening-color {
+  background: #ea580c;
+}
+
+
+/* ------------------------------------------------------- */
+/* Floor plan canvas */
+/* ------------------------------------------------------- */
+
+.canvas-section {
+  width: 100%;
+
+  padding: 20px;
+
+  background: #f8f9fa;
+
+  border: 1px solid #eaecf0;
+
+  border-radius: 10px;
+
+  overflow: auto;
+}
+
+.floor-plan-stage-container {
+  width: 100%;
+
+  display: flex;
+
+  justify-content: center;
+
+  align-items: flex-start;
+
+  min-height: 200px;
+
+  color: #667085;
+}
+
+
+/* ------------------------------------------------------- */
+/* Rooms */
+/* ------------------------------------------------------- */
+
+.rooms {
+  margin-top: 28px;
+}
+
+.rooms h3 {
+  margin: 0 0 16px;
+
+  font-size: 24px;
+
+  color: #101828;
+}
+
+.room-list {
+  display: grid;
+
+  grid-template-columns:
+    repeat(
+      auto-fill,
+      minmax(220px, 1fr)
+    );
+
+  gap: 12px;
+}
+
+.room-card {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 6px;
+
+  padding: 16px;
+
+  border: 1px solid #eaecf0;
+
+  border-radius: 10px;
+
+  background: #ffffff;
+}
+
+.room-card strong {
+  font-size: 16px;
+
+  color: #101828;
+}
+
+.room-card span {
+  color: #475467;
+
+  font-size: 14px;
+}
+
+
+/* ------------------------------------------------------- */
+/* Responsive */
+/* ------------------------------------------------------- */
+
+@media (max-width: 900px) {
+
+  .summary {
+    grid-template-columns:
+      repeat(2, 1fr);
+  }
+
+}
+
+
+@media (max-width: 700px) {
+
+  .header {
+    padding: 22px 20px;
+  }
+
+
+  .main {
+    width: min(
+      100%,
+      calc(100% - 24px)
+    );
+
+    margin: 24px auto 50px;
+  }
+
+
+  .upload-card,
+  .result {
+    padding: 20px;
+  }
+
+
+  .result-header {
+    flex-direction: column;
+  }
+
+
+  .summary {
+    grid-template-columns: 1fr;
+  }
+
+
+  .summary-item strong {
+    font-size: 34px;
+  }
+
+
+  .summary-item span {
+    font-size: 16px;
+  }
+
+
+  .canvas-section {
+    padding: 8px;
+  }
+
+}
+
+/* ------------------------------------------------------- */
+/* Editor */
+/* ------------------------------------------------------- */
+
+.editor-layout {
+  display: grid;
+
+  grid-template-columns:
+    minmax(0, 1fr) 260px;
+
+  gap: 18px;
+
+  align-items: start;
+}
+
+
+.editor-panel {
+  background: #ffffff;
+
+  border: 1px solid #e4e7ec;
+
+  border-radius: 10px;
+
+  padding: 18px;
+}
+
+
+.editor-panel h3 {
+  margin: 0 0 20px;
+
+  font-size: 20px;
+
+  color: #101828;
+}
+
+
+.editor-field {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 6px;
+
+  margin-bottom: 16px;
+}
+
+
+.editor-field label {
+  font-size: 13px;
+
+  font-weight: 600;
+
+  color: #475467;
+}
+
+
+.editor-field input {
+  width: 100%;
+
+  padding: 10px 12px;
+
+  border: 1px solid #d0d5dd;
+
+  border-radius: 8px;
+
+  background: #ffffff;
+
+  color: #101828;
+
+  outline: none;
+}
+
+
+.editor-field input:focus {
+  border-color: #667085;
+}
+
+
+.readonly-value {
+  padding: 10px 12px;
+
+  background: #f9fafb;
+
+  border: 1px solid #eaecf0;
+
+  border-radius: 8px;
+
+  color: #344054;
+}
+
+
+.editor-help {
+  font-size: 13px;
+
+  line-height: 1.5;
+
+  color: #667085;
+
+  margin: 6px 0 18px;
+}
+
+
+.no-selection {
+  margin: 0;
+
+  color: #667085;
+
+  line-height: 1.5;
+}
+
+
+.delete-button {
+  width: 100%;
+
+  padding: 10px 14px;
+
+  border: 1px solid #f04438;
+
+  border-radius: 8px;
+
+  background: #ffffff;
+
+  color: #b42318;
+
+  font-weight: 600;
+
+  cursor: pointer;
+}
+
+
+.delete-button:hover {
+  background: #fff2f0;
+}
+
+
+/* ------------------------------------------------------- */
+/* Selectable room cards */
+/* ------------------------------------------------------- */
+
+.room-card {
+  text-align: left;
+
+  cursor: pointer;
+}
+
+
+.room-card-selected {
+  border-color: #16a34a;
+
+  background: #f0fdf4;
+}
+
+
+@media (max-width: 900px) {
+
+  .editor-layout {
+    grid-template-columns: 1fr;
+  }
+
+}
+
+/* ------------------------------------------------------- */
+/* Editor select fields */
+/* ------------------------------------------------------- */
+
+.editor-field select {
+  width: 100%;
+
+  padding: 10px 12px;
+
+  border: 1px solid #d0d5dd;
+
+  border-radius: 8px;
+
+  background: #ffffff;
+
+  color: #101828;
+
+  font: inherit;
+
+  outline: none;
+}
+
+.editor-field select:focus {
+  border-color: #667085;
+}
+
+
+/* ------------------------------------------------------- */
+/* Object type badges */
+/* ------------------------------------------------------- */
+
+.object-type-badge {
+  display: inline-flex;
+
+  align-items: center;
+
+  padding: 5px 10px;
+
+  margin-bottom: 18px;
+
+  border-radius: 999px;
+
+  font-size: 12px;
+
+  font-weight: 700;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.04em;
+}
+
+.room-badge {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.door-badge {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.window-badge {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.opening-badge {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+/* ------------------------------------------------------- */
+/* Add object toolbar */
+/* ------------------------------------------------------- */
+
+.add-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+
+  margin-bottom: 14px;
+
+  padding: 12px;
+
+  background: #ffffff;
+
+  border: 1px solid #e4e7ec;
+
+  border-radius: 10px;
+}
+
+
+.add-toolbar-title {
+  margin-right: 5px;
+
+  font-size: 14px;
+  font-weight: 700;
+
+  color: #344054;
+}
+
+
+.add-object-button {
+  padding: 8px 13px;
+
+  border: 1px solid #d0d5dd;
+
+  border-radius: 8px;
+
+  background: #ffffff;
+
+  color: #344054;
+
+  font-size: 14px;
+  font-weight: 600;
+
+  cursor: pointer;
+}
+
+
+.add-object-button:hover {
+  background: #f9fafb;
+}
+
+
+.add-object-button.active {
+  color: #ffffff;
+}
+
+
+.room-add.active {
+  background: #16a34a;
+  border-color: #16a34a;
+}
+
+
+.door-add.active {
+  background: #dc2626;
+  border-color: #dc2626;
+}
+
+
+.window-add.active {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+
+.opening-add.active {
+  background: #ea580c;
+  border-color: #ea580c;
+}
+
+
+.cancel-add-button {
+  padding: 8px 13px;
+
+  border: 1px solid #d0d5dd;
+
+  border-radius: 8px;
+
+  background: #f9fafb;
+
+  color: #344054;
+
+  font-size: 14px;
+  font-weight: 600;
+
+  cursor: pointer;
+}
+
+
+/* ------------------------------------------------------- */
+/* Draw instruction */
+/* ------------------------------------------------------- */
+
+.draw-instruction {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  margin-bottom: 14px;
+
+  padding: 10px 14px;
+
+  background: #fffaeb;
+
+  border: 1px solid #fedf89;
+
+  border-radius: 8px;
+
+  color: #7a2e0e;
+
+  font-size: 14px;
+}
+
+
+.draw-instruction strong {
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------- */
+/* Save revision */
+/* ------------------------------------------------------- */
+
+.save-revision-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+
+  margin-bottom: 18px;
+}
+
+
+.save-revision-button {
+  padding: 11px 18px;
+
+  border: 0;
+
+  border-radius: 9px;
+
+  background: #101828;
+
+  color: #ffffff;
+
+  font-size: 14px;
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+
+.save-revision-button:hover:not(:disabled) {
+  background: #1d2939;
+}
+
+
+.save-revision-button:disabled {
+  opacity: 0.6;
+
+  cursor: not-allowed;
+}
+
+
+.save-message {
+  color: #067647;
+
+  font-size: 14px;
+
+  font-weight: 600;
+}
+/* ======================================================= */
+/* SAVE REVISION */
+/* ======================================================= */
+
+.save-revision-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+
+  margin-bottom: 18px;
+
+  padding: 14px 0;
+}
+
+
+.save-revision-button {
+  padding: 12px 20px;
+
+  border: 0;
+
+  border-radius: 9px;
+
+  background: #101828;
+
+  color: #ffffff;
+
+  font-size: 15px;
+
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+
+.save-revision-button:hover:not(:disabled) {
+  background: #1d2939;
+}
+
+
+.save-revision-button:disabled {
+  opacity: 0.6;
+
+  cursor: not-allowed;
+}
+
+
+.save-message {
+  color: #067647;
+
+  font-size: 14px;
+
+  font-weight: 600;
+}
+
+/* ======================================================= */
+/* FLOOR PLAN SCALE */
+/* ======================================================= */
+
+.scale-panel {
+  margin-bottom: 18px;
+
+  padding: 18px;
+
+  background: #fafafa;
+
+  border: 1px solid #e4e7ec;
+
+  border-radius: 10px;
+}
+
+
+.scale-panel-header {
+  display: flex;
+
+  justify-content: space-between;
+
+  align-items: center;
+
+  gap: 20px;
+}
+
+
+.scale-panel-header h3 {
+  margin: 0 0 4px;
+
+  color: #101828;
+
+  font-size: 17px;
+}
+
+
+.scale-panel-header p {
+  margin: 0;
+
+  color: #667085;
+
+  font-size: 13px;
+}
+
+
+.set-scale-button {
+  padding: 9px 15px;
+
+  border: 0;
+
+  border-radius: 8px;
+
+  background: #7c3aed;
+
+  color: #ffffff;
+
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+
+.scale-instruction {
+  margin-top: 14px;
+
+  padding: 10px 12px;
+
+  background: #f5f3ff;
+
+  border: 1px solid #ddd6fe;
+
+  border-radius: 8px;
+
+  color: #5b21b6;
+
+  font-size: 14px;
+
+  font-weight: 600;
+}
+
+
+.measurement-form {
+  display: flex;
+
+  align-items: flex-end;
+
+  flex-wrap: wrap;
+
+  gap: 12px;
+
+  margin-top: 16px;
+}
+
+
+.measurement-form label {
+  display: flex;
+
+  flex-direction: column;
+
+  gap: 6px;
+
+  color: #475467;
+
+  font-size: 13px;
+
+  font-weight: 600;
+}
+
+
+.measurement-form input,
+.measurement-form select {
+  min-width: 130px;
+
+  padding: 9px 10px;
+
+  border: 1px solid #d0d5dd;
+
+  border-radius: 8px;
+
+  background: white;
+
+  color: #101828;
+}
+
+
+.save-scale-button {
+  padding: 10px 16px;
+
+  border: 0;
+
+  border-radius: 8px;
+
+  background: #101828;
+
+  color: white;
+
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+
+.saved-scale {
+  margin-top: 14px;
+
+  padding: 12px;
+
+  background: #f5f3ff;
+
+  border-radius: 8px;
+
+  color: #5b21b6;
+
+  font-size: 14px;
+
+  line-height: 1.6;
+}
+
+
+.room-area {
+  margin-top: 3px;
+
+  color: #067647 !important;
+
+  font-weight: 700;
+}
