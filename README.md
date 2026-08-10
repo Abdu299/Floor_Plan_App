@@ -1,438 +1,269 @@
 # Floor Plan Analysis System
 
-A full-stack floor plan analysis system developed as part of a master's thesis in Programming and System Architecture.
+A full-stack research prototype for **automated floor-plan analysis, correction, validation, and persistence**.
 
-The application takes a floor plan image, analyzes it using computer vision and OCR, converts the result into structured data, allows the user to manually correct the detected elements, validates the floor plan, and stores revisions for later use.
+The system accepts a floor-plan image, detects rooms and architectural objects, extracts room names with OCR, stores the result as an immutable AI revision, and lets the user correct the detected geometry and metadata in a web interface. Corrected versions are stored as new revisions instead of overwriting the original AI result.
 
-The project is designed as a foundation for future floor plan optimization and constraint-based analysis.
+> This project is a research prototype. Its validation rules are project-specific and are **not a complete TEK17/building-code compliance check**.
 
----
+## What This Project Is
 
-## Overview
+This project is a **human-in-the-loop floor-plan digitization and analysis system**. It takes a normal floor-plan image and converts it into structured, editable data instead of leaving the plan as only a picture. The detection pipeline identifies rooms, room names, doors, windows, and openings, while the web application lets a user review the result and correct mistakes before saving it.
 
-The system combines three main applications:
+The goal is not to replace an architect or produce a legally approved building plan. The goal is to create a reliable digital representation of an existing floor plan that can later be used for **validation, measurement, data analysis, and floor-plan optimization**.
 
-- **Python detection service** for computer vision, OCR, and geometric analysis
-- **ASP.NET Core API** for persistence, validation, revisions, and business logic
-- **React frontend** for uploading, visualizing, correcting, and managing floor plans
+## Why It Is Useful
 
-Docker Compose connects all three services and allows the entire application to be started with one command.
+Floor plans often exist as images or PDFs that are difficult for software to reason about directly. Manually converting them into structured data is slow and error-prone. This system automates much of that work while still keeping a person in control of the final result.
 
----
+It is useful because it can:
 
-# Main Features
+- **Reduce manual work** by automatically detecting important floor-plan elements.
+- **Combine AI with human correction**, so detection mistakes can be fixed before the data is trusted.
+- **Create structured geometry and room data** that other software can use instead of working directly with pixels.
+- **Preserve revision history**, keeping the original AI result separate from later user corrections.
+- **Support future optimization and rule checking**, because corrected rooms, connections, areas, and geometry are stored in a consistent form.
+- **Provide a reproducible research platform** through a clear React + ASP.NET Core + Python architecture and Docker-based setup.
 
-## Automated Floor Plan Detection
-
-The Python detection pipeline analyzes uploaded floor plan images and detects:
-
-- Rooms
-- Room names
-- Doors
-- Windows
-- Openings between rooms
-- Room polygons and positions
-- Connections between rooms
-
-Several techniques and models are combined rather than relying on one model.
-
----
-
-## Room Detection
-
-Room detection uses an MMDetection Cascade R-CNN model.
-
-The detector finds room regions in the original image and returns their positions and confidence values.
-
-Detected room regions are later processed geometrically to produce usable room polygons.
-
----
-
-## Room Name Recognition
-
-EasyOCR is used to read text inside the floor plan.
-
-Examples include:
+A typical workflow is:
 
 ```text
-Kitchen
-Bathroom
-Bedroom
-Living Room
-Hall
-Storage
-Office
+Floor-plan image
+      ↓
+Automatic AI / image analysis
+      ↓
+Structured rooms + doors + windows + openings
+      ↓
+User reviews and corrects the result
+      ↓
+Validated revision saved to the database
+      ↓
+Data can later be used for analysis or optimization
 ```
 
-OCR results are associated with detected room polygons based on their position in the image.
+## Screenshots
 
-The system also supports variations such as:
+### Detection result
+
+![Floor-plan detection dashboard](docs/images/detection-dashboard.png)
+
+### Interactive correction interface
+
+![Floor-plan editor](docs/images/floorplan-editor.png)
+
+
+
+## Main Features
+
+- Upload floor-plan images from the browser.
+- Detect rooms using an MMDetection / Cascade R-CNN model.
+- Read room labels using EasyOCR.
+- Detect doors and windows using YOLO.
+- Detect additional openings using rule-based image processing.
+- Visualize detections in React with `react-konva`.
+- Move, rename, add, and delete detected objects.
+- Enter real room areas in m².
+- Store the AI result as **Revision 1** and user corrections as **Revision 2+**.
+- Save floor plans, revisions, geometry, measurements, and validation results in SQLite.
+- Reopen and continue working with previously saved floor plans.
+- Run the complete system with Docker Compose.
+
+## Floor-Plan Input Expectations
+
+The application is designed for **2D architectural floor-plan images**. Detection works best when the drawing follows a clear, conventional floor-plan style.
+
+For the best results, the input should preferably have:
+
+- **Walls shown as thick, dark/black lines** with good contrast against a light background.
+- **Rooms enclosed by visible wall boundaries** so the room detector can separate spaces.
+- **Room names written inside the rooms**, for example `Kitchen`, `Bathroom`, `Bedroom`, or `Living Room`. Clear horizontal text and good image resolution improve OCR accuracy.
+- **Doors shown with recognizable architectural door symbols**, typically a wall opening with a door leaf and/or swing arc.
+- **Windows shown as recognizable window symbols in the wall**, such as narrow rectangular or parallel-line window markings.
+- **Open passages clearly visible as gaps between wall segments** when there is no normal door symbol.
+- A reasonably clean image with limited noise, annotations, or overlapping text.
+
+Supported upload formats in the web interface are:
 
 ```text
-Bathroom 1
-Bathroom 2
-Dining Room Kitchen
-Kitchen 1
-Main Bathroom
+.png
+.jpg
+.jpeg
+.webp
 ```
 
----
+These are **input expectations, not legal building requirements**. Different drawing styles, very thin walls, low-resolution scans, unusual symbols, rotated text, or unclear room labels can reduce detection accuracy.
 
-## Door and Window Detection
+## Functional Constraints and Warnings
 
-A trained YOLO model detects architectural objects such as:
+After detection, the application performs live validation. A floor plan is considered valid by the current prototype when it has:
+
+- At least **one detected room**.
+- At least **one bathroom**.
+- At least **one kitchen or cooking area**.
+- At least **one connection**, represented by either a **door OR an opening**.
+
+Before a corrected revision can be saved, **every room must also have a positive real-world area in m²**.
+
+The interface therefore warns the user when something important is missing, for example:
 
 ```text
-Doors
-Windows
+✕ Bathroom
+✕ Kitchen
+✓ At least one door or opening
+✕ All rooms have an area
 ```
 
-Detected doors are associated with nearby rooms so the system can determine which rooms are connected.
-
----
-
-## Opening Detection
-
-Some floor plans contain connections without a traditional door symbol.
-
-A rule-based opening detector analyzes wall geometry and searches for gaps that may represent:
+It also gives more specific messages such as:
 
 ```text
-Open doorways
-Large passages
-Open-plan connections
-Missing wall sections
+No bathroom was found.
+No kitchen or cooking area was found.
+The floor plan needs at least one door or one opening.
+Room 3 – Bathroom is missing a valid area.
 ```
 
-Known doors and windows are excluded to reduce duplicate detections.
+The purpose of these warnings is to make the user review and correct the AI output before saving it as a trusted revision. These constraints are **project-specific prototype rules** and are not a complete TEK17 or building-code validation system.
 
----
+## What the Application Lets You Do
 
-# Floor Plan Validation
+The web application is not only a detector. It also provides a correction and review workflow around the AI result.
 
-The system performs basic prototype validation.
+A user can:
 
-A floor plan is currently considered structurally valid when it contains:
+- **Upload and analyze** a floor-plan image.
+- See detected **rooms, doors, windows, and openings** overlaid on the original drawing.
+- See AI confidence information for detected elements.
+- **Select and move** detected objects when the geometry is slightly wrong.
+- **Rename rooms** when OCR reads the room label incorrectly.
+- **Add new rooms, doors, windows, or openings** by drawing them directly on the floor plan.
+- **Delete incorrect detections**.
+- Change which rooms a detected or manually added **door/opening connects**.
+- Enter the **real room area in m²** for every room.
+- See live validation showing what still needs to be corrected before saving.
+- Save corrections as a **new revision** instead of overwriting the original AI result.
+- Keep the original AI analysis as **Revision 1** and later user changes as **Revision 2, Revision 3, ...**.
+- Open the **Saved floor plans** page and return to previously analyzed floor plans.
+- Continue editing previously saved floor plans.
+- Delete saved floor plans when they are no longer needed.
+- Persist the SQLite database and uploaded images when the system is run with Docker volumes.
 
-```text
-At least one room
-At least one bathroom
-At least one kitchen or cooking area
-At least one door OR opening
-```
-
-Windows are not required for validation.
-
-Before a user-corrected revision can be saved, every room must also have a valid manually entered real-world area:
-
-```text
-Area > 0 m²
-```
-
-The current validation is prototype logic and is **not full TEK17 or building regulation compliance validation**.
-
----
-
-# Human Correction
-
-AI detections are not assumed to be perfect.
-
-The frontend allows users to inspect and correct the result.
-
-Users can:
+This creates a **human-in-the-loop workflow**:
 
 ```text
-Rename rooms
+Upload image
+    ↓
+AI detection
+    ↓
+Review detected objects
+    ↓
+Correct names / geometry / connections
+    ↓
+Add missing objects
+    ↓
 Enter room areas
-Move detected objects
-Delete incorrect detections
-Add rooms
-Add doors
-Add windows
-Add openings
-Change room connections
+    ↓
+Resolve validation warnings
+    ↓
+Save a new revision
 ```
 
-This creates a human-in-the-loop workflow where automatic detection provides the initial structure and the user can correct mistakes before later processing.
+## Architecture
 
----
-
-# Revision System
-
-The application stores floor plans using revisions.
-
-The original AI detection is stored as:
-
-```text
-Revision 1
-Source: AI
+```mermaid
+flowchart LR
+    A[React + Nginx] -->|HTTP /api| B[ASP.NET Core API]
+    B -->|HTTP| C[Python FastAPI Detector]
+    C --> D[MMDetection]
+    C --> E[YOLO]
+    C --> F[EasyOCR]
+    C --> G[Opening Detection]
+    B --> H[(SQLite)]
+    B --> I[Uploaded Images]
 ```
 
-It is never overwritten.
+### Frontend — `FloorPlan.Web`
 
-When the user makes corrections and saves them, a new revision is created:
+Built with **React, TypeScript, Vite, React Router, and react-konva**. It handles image upload, visualization, editing, live validation, saved floor plans, and revision correction.
+
+### Backend — `FloorPlan.Api`
+
+Built with **ASP.NET Core Web API, C#, Entity Framework Core, and SQLite**. It is the central application layer. It receives requests from React, calls the Python detector, validates corrected data, manages revisions, and persists floor plans and uploaded images.
+
+### Detection service — `ProjectMaster`
+
+Built with **Python and FastAPI**. It combines several detection methods:
+
+- **MMDetection / Cascade R-CNN** — room detection.
+- **EasyOCR** — room-name recognition.
+- **YOLO** — door and window detection.
+- **OpenCV / geometric rules** — opening detection and floor-plan processing.
+
+The detector returns structured JSON to the ASP.NET API.
+
+## Data and Revision Model
+
+Geometry is stored in **original image pixel coordinates** so the same data can be rendered consistently regardless of browser size.
+
+The AI result is preserved as the first revision:
 
 ```text
-Revision 2
-Source: User
-```
-
-Additional corrections create:
-
-```text
-Revision 3
-Revision 4
+Revision 1  -> source: ai
+Revision 2  -> source: user, based on Revision 1
+Revision 3  -> source: user, based on Revision 2
 ...
 ```
 
-Each revision keeps a reference to the revision it was based on.
+Previous revisions are not overwritten.
 
-This makes it possible to preserve the original AI output while maintaining a history of later corrections.
+The current prototype considers a floor plan semantically valid when it contains:
 
----
+- at least one room;
+- at least one bathroom;
+- at least one kitchen/cooking area;
+- at least one **door OR opening**.
 
-# Coordinate System
+To save a corrected revision, every room must also have a valid positive area in m².
 
-All geometry is stored using the coordinates of the **original uploaded image**.
-
-For example:
-
-```json
-{
-  "x": 425.5,
-  "y": 311.2
-}
-```
-
-The React interface may scale the image visually, but stored room, door, window, and opening coordinates remain in original image pixel coordinates.
-
-This prevents geometry from changing when the browser window or display size changes.
-
----
-
-# Architecture
-
-The project contains three main services.
-
-```text
-Browser
-   |
-   v
-React + Nginx
-FloorPlan.Web
-Port 3000
-   |
-   | HTTP /api/*
-   v
-ASP.NET Core API
-FloorPlan.Api
-Port 5131
-   |
-   | HTTP
-   v
-Python FastAPI Detector
-ProjectMaster
-Port 8000
-```
-
-The ASP.NET API communicates with Python internally through Docker using:
-
-```text
-http://detector:8000
-```
-
-The browser does not need to communicate directly with the Python service.
-
----
-
-# Technology Stack
-
-## Frontend
-
-```text
-React
-TypeScript
-Vite
-React Router
-react-konva
-Nginx
-```
-
-React Konva is used to draw detected floor plan geometry and allow interactive editing.
-
----
-
-## Backend
-
-```text
-C#
-ASP.NET Core Web API
-Entity Framework Core
-SQLite
-REST API
-```
-
-The backend is responsible for:
-
-```text
-Database access
-Floor plan persistence
-Revision management
-Validation
-Uploaded image storage
-Communication with Python
-REST API endpoints
-```
-
----
-
-## Detection Service
-
-```text
-Python
-FastAPI
-MMDetection
-MMCV
-MMEngine
-PyTorch
-YOLO / Ultralytics
-EasyOCR
-OpenCV
-Shapely
-NumPy
-```
-
----
-
-## Deployment
-
-```text
-Docker
-Docker Compose
-Nginx
-```
-
-Docker allows the application and its dependencies to run consistently without requiring users to manually install Python packages, .NET packages, OCR libraries, or machine-learning frameworks.
-
----
-
-# Project Structure
+## Project Structure
 
 ```text
 FLOOR_PLAN_APP/
-│
-├── README.md
 ├── compose.yaml
 │
 ├── ProjectMaster/
-│   │
 │   ├── api.py
-│   ├── detection_pipeline.py
+│   ├── Dockerfile
 │   ├── requirements.txt
 │   ├── install_openmmlab.sh
-│   ├── Dockerfile
-│   │
 │   ├── configs/
-│   │   ├── floorPlan.py
-│   │   ├── room.py
-│   │   ├── door.py
-│   │   └── ...
-│   │
 │   ├── detections/
-│   │   ├── room_detection.py
-│   │   ├── objectDetect.py
-│   │   ├── openingDetect_new.py
-│   │   └── ...
-│   │
 │   └── weights/
-│       ├── best.pt
-│       └── cascade_swin_latest.pth
 │
 └── FloorPlanSystem/
-    │
     ├── FloorPlan.Api/
     │   ├── Controllers/
     │   ├── Data/
     │   ├── Models/
     │   ├── Services/
     │   ├── Migrations/
-    │   ├── Program.cs
-    │   ├── Dockerfile
-    │   └── FloorPlan.Api.csproj
+    │   └── Dockerfile
     │
     └── FloorPlan.Web/
         ├── src/
-        │   ├── components/
-        │   ├── pages/
-        │   ├── App.tsx
-        │   ├── api.ts
-        │   └── types.ts
-        │
         ├── Dockerfile
-        ├── nginx.conf
-        ├── package.json
-        └── vite.config.ts
+        └── nginx.conf
 ```
 
-Some filenames may change as the project develops.
+## Model Weights
 
----
-
-# Installation
-
-## Recommended Method: Docker
-
-Docker is the recommended way to run the project.
-
-You do **not** need to manually install:
+The Python detector requires trained model weights before detection can run. Make sure the required files are available in `ProjectMaster/weights/`, including:
 
 ```text
-Python dependencies
-PyTorch
-MMDetection
-EasyOCR
-ASP.NET packages
-Node packages
-Nginx
-SQLite
+best.pt
+cascade_swin_latest.pth
 ```
 
-Docker installs and configures these inside the containers.
-
----
-
-## Requirements
-
-Install:
-
-### Docker Desktop
-
-Docker Desktop must be installed and running.
-
-Verify Docker:
-
-```bash
-docker --version
-```
-
-Verify Docker Compose:
-
-```bash
-docker compose version
-```
-
----
-
-# Model Weights
-
-The detection service requires trained model weights.
-
-Required files:
-
-```text
-ProjectMaster/weights/best.pt
-ProjectMaster/weights/cascade_swin_latest.pth
-```
+Keep the MMDetection configuration files in the location expected by the Python code as well.
 
 If the model weights are not included in the repository, download them from:
 
@@ -441,485 +272,188 @@ MODEL WEIGHTS DOWNLOAD LINK:
 ADD_LINK_HERE
 ```
 
-Then place them in:
-
-```text
-ProjectMaster/
-└── weights/
-    ├── best.pt
-    └── cascade_swin_latest.pth
-```
-
-The Docker build checks that these files exist.
-
 ---
 
-# Running the Application
+# Recommended Setup — Docker
 
-Open a terminal in the project root:
+Docker is the easiest and most reproducible way to run the project.
 
-```bash
-cd FLOOR_PLAN_APP
-```
+## Requirements
 
-The directory should contain:
+Install:
 
-```text
-compose.yaml
-ProjectMaster/
-FloorPlanSystem/
-```
+- Git
+- Docker Desktop
 
-Start the complete system:
+No local Python, Node.js, .NET SDK, MMDetection, or SQLite installation is required when using the Docker version.
+
+## Start the complete system
+
+From the repository root:
 
 ```bash
 docker compose up --build
 ```
 
-Docker will:
-
-```text
-Build the Python detector
-Build the ASP.NET API
-Build the React frontend
-Create the Docker network
-Create persistent storage
-Start all three services
-Load the AI models
-Apply database migrations
-Start the application
-```
-
-The first build may take several minutes because PyTorch, MMDetection, EasyOCR, and other machine-learning dependencies must be installed.
-
-Later builds are normally faster because Docker caches dependencies.
-
----
-
-# Open the Application
-
-After the services have started, open:
-
-```text
-http://localhost:3000
-```
-
-The React frontend is served through Nginx.
-
----
-
-# Service URLs
-
-Frontend:
-
-```text
-http://localhost:3000
-```
-
-ASP.NET API:
-
-```text
-http://localhost:5131
-```
-
-API health endpoint:
-
-```text
-http://localhost:5131/health
-```
-
-Python detector:
-
-```text
-http://localhost:8000
-```
-
-Python health endpoint:
-
-```text
-http://localhost:8000/health
-```
-
----
-
-# Running in the Background
-
-Instead of displaying all logs in the terminal:
-
-```bash
-docker compose up -d
-```
-
-Check running containers:
-
-```bash
-docker compose ps
-```
-
----
-
-# View Logs
-
-All services:
-
-```bash
-docker compose logs -f
-```
-
-Python detector only:
-
-```bash
-docker compose logs -f detector
-```
-
-ASP.NET API only:
-
-```bash
-docker compose logs -f floorplan-api
-```
-
-Frontend only:
-
-```bash
-docker compose logs -f floorplan-web
-```
-
----
-
-# Stop the Application
-
-Run:
-
-```bash
-docker compose down
-```
-
-This removes the running containers and Docker network but keeps the saved database and uploaded images.
-
----
-
-# Persistent Data
-
-The project uses Docker volumes.
-
-Database:
-
-```text
-floorplan-db
-```
-
-Uploaded images:
-
-```text
-floorplan-uploads
-```
-
-Therefore this is safe:
-
-```bash
-docker compose down
-docker compose up -d
-```
-
-Previously saved floor plans will still exist.
-
-Do **not** run this unless you intentionally want to delete saved data:
-
-```bash
-docker compose down -v
-```
-
-The `-v` option removes the persistent Docker volumes.
-
----
-
-# Updating the Code
-
-Docker images contain a copy of the source code at build time.
-
-If source code changes, the relevant service must be rebuilt.
-
-## Python changed
-
-```bash
-docker compose up -d --build detector
-```
-
-## ASP.NET changed
-
-```bash
-docker compose up -d --build floorplan-api
-```
-
-## React changed
-
-```bash
-docker compose up -d --build floorplan-web
-```
-
-## Multiple parts changed
+Or run it in the background:
 
 ```bash
 docker compose up -d --build
 ```
 
-Simply running:
-
-```bash
-docker compose restart detector
-```
-
-does **not** rebuild the image and therefore does not include changed source files.
-
----
-
-# Typical Workflow
-
-Upload a floor plan image from the frontend.
-
-The request follows this flow:
-
-```text
-User uploads image
-        |
-        v
-React frontend
-        |
-        v
-ASP.NET API
-        |
-        v
-Python detection API
-        |
-        v
-Room detection
-        |
-        +--> MMDetection
-        |
-        +--> EasyOCR
-        |
-        +--> YOLO
-        |
-        +--> Opening detection
-        |
-        v
-Structured detection result
-        |
-        v
-ASP.NET stores Revision 1
-        |
-        v
-React displays result
-        |
-        v
-User corrects detections
-        |
-        v
-Validation
-        |
-        v
-ASP.NET stores Revision 2+
-```
-
----
-
-# Database
-
-SQLite is currently used because it is lightweight and easy to distribute.
-
-Entity Framework Core manages the database schema.
-
-Database migrations are automatically applied when the ASP.NET container starts.
-
-Users therefore do not normally need to run:
-
-```bash
-dotnet ef database update
-```
-
-manually.
-
-The architecture can later be migrated to PostgreSQL or PostgreSQL/PostGIS if more advanced spatial storage is required.
-
----
-
-# API Communication
-
-The React frontend communicates with ASP.NET using HTTP REST endpoints.
-
-Examples include:
-
-```text
-POST   /api/detection
-GET    /api/floorplans
-GET    /api/floorplans/{id}
-DELETE /api/floorplans/{id}
-POST   /api/floorplans/{id}/revisions
-POST   /api/floorplans/{id}/measurements
-GET    /api/floorplans/{id}/measurements/latest
-```
-
-Inside Docker, ASP.NET communicates with Python using:
-
-```text
-http://detector:8000
-```
-
-Docker's internal DNS automatically resolves the service name `detector`.
-
----
-
-# Why Three Separate Services?
-
-The project separates responsibilities.
-
-## Python
-
-Responsible for machine learning and computer vision.
-
-## ASP.NET
-
-Responsible for the application backend, persistence, validation, revisions, and API logic.
-
-## React
-
-Responsible for visualization and user interaction.
-
-This makes the architecture easier to maintain and allows each part to evolve independently.
-
-For example, the detection models can be changed without rewriting the frontend or database architecture.
-
----
-
-# Current Limitations
-
-This project is a research prototype.
-
-Detection quality depends on:
-
-```text
-Image resolution
-Floor plan drawing style
-OCR quality
-Model confidence
-Wall visibility
-Room label positioning
-```
-
-The system may therefore detect incorrect rooms, doors, windows, openings, or room labels.
-
-The manual correction interface exists specifically so users can correct these results.
-
-Validation currently represents prototype constraints and should not be interpreted as complete architectural or regulatory approval.
-
----
-
-# Future Development
-
-The current structured and corrected floor plan data is intended to support later work such as:
-
-```text
-Mathematical floor plan optimization
-Constraint-based optimization
-TEK17-related analysis
-Accessibility constraints
-Emergency exit analysis
-Room adjacency optimization
-Automatic layout improvements
-GeoJSON export
-CAD/BIM integration
-PostgreSQL/PostGIS storage
-Comparison of original and optimized floor plans
-```
-
-A major goal of the architecture is to ensure that optimization uses the **confirmed human-corrected revision** rather than blindly using the initial AI result.
-
----
-
-# Research Goal
-
-The project investigates how computer vision, OCR, geometric analysis, human correction, structured data storage, and optimization can be combined into one floor plan processing workflow.
-
-The overall concept is:
-
-```text
-Image
-  ↓
-AI detection
-  ↓
-Structured floor plan
-  ↓
-Human verification
-  ↓
-Validated revision
-  ↓
-Optimization / constraint analysis
-```
-
-This separation is important because computer vision results are probabilistic, while optimization requires reliable structured input.
-
----
-
-# Development Status
-
-Current implementation includes:
-
-```text
-Automated room detection
-OCR room-name recognition
-Door detection
-Window detection
-Opening detection
-Room connectivity
-Floor plan visualization
-Interactive correction
-Object creation and deletion
-Room renaming
-Manual room areas
-Floor plan validation
-Revision history
-SQLite persistence
-Uploaded-image persistence
-REST API
-Dockerized Python detector
-Dockerized ASP.NET API
-Dockerized React frontend
-Docker Compose setup
-```
-
-Future development will focus primarily on optimization and additional constraint analysis.
-
----
-
-# Author
-
-Developed as part of a master's thesis in:
-
-**Programming and System Architecture**
-
-The project is intended for research, experimentation, and development of automated floor plan analysis and optimization techniques.
-
----
-
-# Quick Start
-
-For users who already have Docker installed:
-
-```bash
-git clone YOUR_REPOSITORY_URL
-cd FLOOR_PLAN_APP
-
-docker compose up --build
-```
-
-Then open:
+Open:
 
 ```text
 http://localhost:3000
 ```
 
-To stop:
+Available services:
+
+```text
+Frontend:         http://localhost:3000
+ASP.NET API:      http://localhost:5131
+Python detector:  http://localhost:8000
+```
+
+Health checks:
+
+```bash
+curl http://localhost:5131/health
+curl http://localhost:8000/health
+```
+
+## Stop the system
 
 ```bash
 docker compose down
 ```
+
+The SQLite database and uploaded images are stored in Docker volumes and survive normal container recreation.
+
+Do **not** use `docker compose down -v` unless you intentionally want to delete the persistent database/uploads.
+
+## After changing code
+
+Rebuild only the service you changed:
+
+```bash
+# Python
+docker compose up -d --build detector
+
+# ASP.NET
+docker compose up -d --build floorplan-api
+
+# React
+docker compose up -d --build floorplan-web
+```
+
+Or rebuild everything:
+
+```bash
+docker compose up -d --build
+```
+
+---
+
+# Local Development Setup
+
+Docker is recommended for normal use, but each service can also run directly on the development machine.
+
+## 1. Python detector
+
+```bash
+cd ProjectMaster
+python3 -m venv venvy
+source venvy/bin/activate
+python -m pip install --upgrade pip wheel setuptools
+python -m pip install -r requirements.txt
+chmod +x install_openmmlab.sh
+./install_openmmlab.sh
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+The project is pinned around NumPy `1.26.4`; changing major scientific-package versions can break the MMDetection/PyTorch environment.
+
+Test:
+
+```bash
+curl http://localhost:8000/health
+```
+
+## 2. ASP.NET API
+
+Open another terminal:
+
+```bash
+cd FloorPlanSystem/FloorPlan.Api
+dotnet restore
+dotnet run --urls http://localhost:5131
+```
+
+The API applies Entity Framework migrations automatically on startup.
+
+Test:
+
+```bash
+curl http://localhost:5131/health
+```
+
+## 3. React frontend
+
+Open another terminal:
+
+```bash
+cd FloorPlanSystem/FloorPlan.Web
+npm install
+```
+
+For local development, create `.env.local`:
+
+```env
+VITE_API_URL=http://localhost:5131
+```
+
+Then run:
+
+```bash
+npm run dev
+```
+
+Open the Vite URL, normally:
+
+```text
+http://localhost:5173
+```
+
+## Typical Request Flow
+
+```text
+User uploads image
+      ↓
+React frontend
+      ↓
+ASP.NET Core API
+      ↓
+Python detection API
+      ↓
+Rooms + OCR + doors + windows + openings
+      ↓
+ASP.NET stores Revision 1 in SQLite
+      ↓
+React displays editable result
+      ↓
+User corrects data and enters room areas
+      ↓
+ASP.NET validates and stores Revision 2+
+```
+
+## Technology Summary
+
+**Frontend:** React, TypeScript, Vite, React Router, react-konva, Nginx  
+**Backend:** C#, ASP.NET Core Web API, Entity Framework Core, SQLite  
+**Computer Vision:** Python, FastAPI, MMDetection, PyTorch, YOLO/Ultralytics, EasyOCR, OpenCV, Shapely  
+**Deployment:** Docker, Docker Compose, persistent Docker volumes
+
+## Purpose
+
+The project was developed as part of a master’s thesis workflow exploring how computer vision, OCR, geometric processing, human correction, persistent structured data, and later optimization can be combined into one floor-plan analysis system.
