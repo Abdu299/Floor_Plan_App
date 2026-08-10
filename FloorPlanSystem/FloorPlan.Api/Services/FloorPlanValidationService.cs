@@ -159,6 +159,35 @@ public class FloorPlanValidationService
         );
 
 
+    // =====================================================
+    // ROOM TYPE KEYWORDS
+    // =====================================================
+
+    private static readonly string[]
+        BathroomKeywords =
+        [
+            "bathroom",
+            "bath",
+            "toilet",
+            "wc",
+            "water closet",
+            "lavatory",
+            "restroom",
+            "shower"
+        ];
+
+
+    private static readonly string[]
+        KitchenKeywords =
+        [
+            "kitchen",
+            "kitchenette",
+            "cooking area",
+            "cooking zone",
+            "cooking"
+        ];
+
+
     // =========================================================
     // VALIDATE
     // =========================================================
@@ -232,7 +261,7 @@ public class FloorPlanValidationService
 
 
             if (
-                BathroomNames.Contains(
+                IsBathroomName(
                     normalizedName
                 )
             )
@@ -243,7 +272,7 @@ public class FloorPlanValidationService
 
 
             if (
-                KitchenNames.Contains(
+                IsKitchenName(
                     normalizedName
                 )
             )
@@ -382,4 +411,150 @@ public class FloorPlanValidationService
                 )
         );
     }
+
+
+    // =========================================================
+    // NORMALIZE FOR KEYWORD SEARCH
+    // =========================================================
+
+    private static string NormalizeForKeywordSearch(
+        string? name)
+    {
+        var normalized =
+            NormalizeRoomName(
+                name
+            );
+
+
+        if (
+            string.IsNullOrWhiteSpace(
+                normalized
+            )
+        )
+        {
+            return string.Empty;
+        }
+
+
+        var characters =
+            normalized
+                .Select(
+                    character =>
+                        char.IsLetterOrDigit(
+                            character
+                        )
+                            ? character
+                            : ' '
+                )
+                .ToArray();
+
+
+        return string.Join(
+            " ",
+
+            new string(
+                characters
+            )
+                .Split(
+                    ' ',
+                    StringSplitOptions
+                        .RemoveEmptyEntries
+                )
+        );
+    }
+
+
+    // =========================================================
+    // KEYWORD MATCH
+    // =========================================================
+
+    private static bool ContainsRoomKeyword(
+        string roomName,
+        string keyword)
+    {
+        var normalizedRoomName =
+            NormalizeForKeywordSearch(
+                roomName
+            );
+
+
+        var normalizedKeyword =
+            NormalizeForKeywordSearch(
+                keyword
+            );
+
+
+        if (
+            string.IsNullOrWhiteSpace(
+                normalizedRoomName
+            )
+            ||
+            string.IsNullOrWhiteSpace(
+                normalizedKeyword
+            )
+        )
+        {
+            return false;
+        }
+
+
+        return (
+            $" {normalizedRoomName} "
+                .Contains(
+                    $" {normalizedKeyword} ",
+                    StringComparison.Ordinal
+                )
+        );
+    }
+
+
+    // =========================================================
+    // ROOM TYPE CHECKS
+    // =========================================================
+
+    private static bool IsBathroomName(
+        string roomName)
+    {
+        if (
+            BathroomNames.Contains(
+                roomName
+            )
+        )
+        {
+            return true;
+        }
+
+
+        return BathroomKeywords.Any(
+            keyword =>
+                ContainsRoomKeyword(
+                    roomName,
+                    keyword
+                )
+        );
+    }
+
+
+    private static bool IsKitchenName(
+        string roomName)
+    {
+        if (
+            KitchenNames.Contains(
+                roomName
+            )
+        )
+        {
+            return true;
+        }
+
+
+        return KitchenKeywords.Any(
+            keyword =>
+                ContainsRoomKeyword(
+                    roomName,
+                    keyword
+                )
+        );
+    }
+
 }

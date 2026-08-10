@@ -183,6 +183,31 @@ interface SaveValidation {
 
 
 // =========================================================
+// ROOM TYPE KEYWORDS
+// =========================================================
+
+const BATHROOM_KEYWORDS = [
+  "bathroom",
+  "bath",
+  "toilet",
+  "wc",
+  "water closet",
+  "lavatory",
+  "restroom",
+  "shower",
+];
+
+
+const KITCHEN_KEYWORDS = [
+  "kitchen",
+  "kitchenette",
+  "cooking area",
+  "cooking zone",
+  "cooking",
+];
+
+
+// =========================================================
 // NORMALIZE ROOM NAME
 // =========================================================
 
@@ -196,6 +221,126 @@ function normalizeRoomName(
     .split(/\s+/)
     .filter(Boolean)
     .join(" ");
+
+}
+
+
+// =========================================================
+// NORMALIZE FOR KEYWORD SEARCH
+// =========================================================
+
+function normalizeForKeywordSearch(
+  value: string
+): string {
+
+  return normalizeRoomName(
+    value
+  )
+    .replace(
+      /[^a-z0-9]+/g,
+      " "
+    )
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(" ");
+
+}
+
+
+// =========================================================
+// KEYWORD MATCH
+// =========================================================
+
+function containsRoomKeyword(
+  roomName: string,
+  keyword: string
+): boolean {
+
+  const normalizedRoomName =
+    normalizeForKeywordSearch(
+      roomName
+    );
+
+
+  const normalizedKeyword =
+    normalizeForKeywordSearch(
+      keyword
+    );
+
+
+  if (
+    !normalizedRoomName
+    ||
+    !normalizedKeyword
+  ) {
+    return false;
+  }
+
+
+  return (
+    ` ${normalizedRoomName} `
+      .includes(
+        ` ${normalizedKeyword} `
+      )
+  );
+
+}
+
+
+// =========================================================
+// ROOM TYPE CHECKS
+// =========================================================
+
+function isBathroomName(
+  roomName: string
+): boolean {
+
+  const normalized =
+    normalizeRoomName(
+      roomName
+    );
+
+
+  return (
+    BATHROOM_NAMES.has(
+      normalized
+    )
+    ||
+    BATHROOM_KEYWORDS.some(
+      keyword =>
+        containsRoomKeyword(
+          roomName,
+          keyword
+        )
+    )
+  );
+
+}
+
+
+function isKitchenName(
+  roomName: string
+): boolean {
+
+  const normalized =
+    normalizeRoomName(
+      roomName
+    );
+
+
+  return (
+    KITCHEN_NAMES.has(
+      normalized
+    )
+    ||
+    KITCHEN_KEYWORDS.some(
+      keyword =>
+        containsRoomKeyword(
+          roomName,
+          keyword
+        )
+    )
+  );
 
 }
 
@@ -253,10 +398,8 @@ function validateForSave(
   const hasBathroom =
     rooms.some(
       room =>
-        BATHROOM_NAMES.has(
-          normalizeRoomName(
-            room.name
-          )
+        isBathroomName(
+          room.name
         )
     );
 
@@ -264,10 +407,8 @@ function validateForSave(
   const hasKitchen =
     rooms.some(
       room =>
-        KITCHEN_NAMES.has(
-          normalizeRoomName(
-            room.name
-          )
+        isKitchenName(
+          room.name
         )
     );
 

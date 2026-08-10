@@ -149,3 +149,4 @@
 /Users/abdu/Documents/project/Floor_Plan_App/FloorPlanSystem/FloorPlan.Api/bin/Debug/net10.0/FloorPlan.Api.staticwebassets.runtime.json
 /Users/abdu/Documents/project/Floor_Plan_App/FloorPlanSystem/FloorPlan.Api/bin/Debug/net10.0/package-lock.json
 /Users/abdu/Documents/project/Floor_Plan_App/FloorPlanSystem/FloorPlan.Api/bin/Debug/net10.0/package.json
+/Users/abdu/Documents/project/Floor_Plan_App/FloorPlanSystem/FloorPlan.Api/obj/Debug/net10.0/FloorPlan.Api.sourcelink.json

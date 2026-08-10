@@ -242,3 +242,23 @@ export interface SavedFloorPlanSummary {
 
   openingCount: number;
 }
+
+// =========================================================
+// FLOOR PLAN MEASUREMENT
+// =========================================================
+
+export interface FloorPlanMeasurement {
+  id: number;
+  floorPlanId: number;
+
+  startX: number;
+  startY: number;
+
+  endX: number;
+  endY: number;
+
+  actualDistance: number;
+  unit: string;
+
+  metresPerPixel: number | null;
+}

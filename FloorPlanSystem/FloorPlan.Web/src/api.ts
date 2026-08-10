@@ -1,25 +1,42 @@
 import type {
   DetectionUploadResponse,
   FloorPlan,
-  SavedFloorPlanSummary,
+  FloorPlanMeasurement,
+  PixelPoint,
 } from "./types";
 
 
+// =========================================================
+// API URL
+// =========================================================
+//
+// LOCAL DEVELOPMENT:
+//
+// VITE_API_URL=http://localhost:5131
+//
+// DOCKER:
+//
+// No VITE_API_URL is required.
+//
+// The browser will use relative URLs:
+//
+// /api/...
+// /uploads/...
+//
+// Nginx will forward those requests to the ASP.NET
+// container.
+// =========================================================
+
 const API_URL =
-  import.meta.env.VITE_API_URL;
-
-
-if (!API_URL) {
-
-  throw new Error(
-    "VITE_API_URL is not configured."
-  );
-
-}
+  (
+    import.meta.env.VITE_API_URL
+    ??
+    ""
+  ).replace(/\/$/, "");
 
 
 // =========================================================
-// UPLOAD FLOOR PLAN
+// UPLOAD
 // =========================================================
 
 export async function uploadFloorPlan(
@@ -40,29 +57,21 @@ export async function uploadFloorPlan(
     await fetch(
       `${API_URL}/api/detection`,
       {
-        method:
-          "POST",
-
-        body:
-          formData,
+        method: "POST",
+        body: formData,
       }
     );
 
 
-  if (
-    !response.ok
-  ) {
+  if (!response.ok) {
 
-    const errorText =
+    const text =
       await response.text();
 
 
     throw new Error(
-      `Detection failed ` +
-      `(${response.status} ${response.statusText}): ` +
-      `${errorText || "No error response from server."}`
+      `Detection failed: ${text}`
     );
-
   }
 
 
@@ -71,41 +80,7 @@ export async function uploadFloorPlan(
 
 
 // =========================================================
-// GET ALL FLOOR PLANS
-// =========================================================
-
-export async function getAllFloorPlans():
-  Promise<SavedFloorPlanSummary[]> {
-
-  const response =
-    await fetch(
-      `${API_URL}/api/floorplans`
-    );
-
-
-  if (
-    !response.ok
-  ) {
-
-    const errorText =
-      await response.text();
-
-
-    throw new Error(
-      `Could not load saved floor plans ` +
-      `(${response.status}): ` +
-      `${errorText || "No error response from server."}`
-    );
-
-  }
-
-
-  return await response.json();
-}
-
-
-// =========================================================
-// GET ONE FLOOR PLAN
+// GET FLOOR PLAN
 // =========================================================
 
 export async function getFloorPlan(
@@ -118,20 +93,15 @@ export async function getFloorPlan(
     );
 
 
-  if (
-    !response.ok
-  ) {
+  if (!response.ok) {
 
-    const errorText =
+    const text =
       await response.text();
 
 
     throw new Error(
-      `Could not load floor plan ` +
-      `(${response.status} ${response.statusText}): ` +
-      `${errorText || "No error response from server."}`
+      `Could not load floor plan: ${text}`
     );
-
   }
 
 
@@ -140,44 +110,7 @@ export async function getFloorPlan(
 
 
 // =========================================================
-// DELETE FLOOR PLAN
-// =========================================================
-
-export async function deleteFloorPlan(
-  floorPlanId: number
-): Promise<void> {
-
-  const response =
-    await fetch(
-      `${API_URL}/api/floorplans/${floorPlanId}`,
-      {
-        method:
-          "DELETE",
-      }
-    );
-
-
-  if (
-    !response.ok
-  ) {
-
-    const errorText =
-      await response.text();
-
-
-    throw new Error(
-      `Could not delete floor plan ` +
-      `(${response.status} ${response.statusText}): ` +
-      `${errorText || "No error response from server."}`
-    );
-
-  }
-
-}
-
-
-// =========================================================
-// SAVED REVISION RESPONSE
+// SAVE REVISION
 // =========================================================
 
 export interface SavedRevisionResponse {
@@ -197,10 +130,6 @@ export interface SavedRevisionResponse {
 }
 
 
-// =========================================================
-// SAVE CORRECTED REVISION
-// =========================================================
-
 export async function saveCorrectedRevision(
   floorPlan: FloorPlan
 ): Promise<SavedRevisionResponse> {
@@ -209,66 +138,46 @@ export async function saveCorrectedRevision(
     await fetch(
       `${API_URL}/api/floorplans/${floorPlan.floorPlanId}/revisions`,
       {
-        method:
-          "POST",
+        method: "POST",
 
         headers: {
           "Content-Type":
             "application/json",
         },
 
-        body:
-          JSON.stringify(
-            {
-              basedOnRevisionId:
-                floorPlan
-                  .revision
-                  .revisionId,
+        body: JSON.stringify({
+          basedOnRevisionId:
+            floorPlan.revision.revisionId,
 
-              validation:
-                floorPlan
-                  .revision
-                  .validation,
+          validation:
+            floorPlan.revision.validation,
 
-              rooms:
-                floorPlan
-                  .revision
-                  .rooms,
+          rooms:
+            floorPlan.revision.rooms,
 
-              doors:
-                floorPlan
-                  .revision
-                  .doors,
+          doors:
+            floorPlan.revision.doors,
 
-              windows:
-                floorPlan
-                  .revision
-                  .windows,
+          windows:
+            floorPlan.revision.windows,
 
-              openings:
-                floorPlan
-                  .revision
-                  .openings,
-            }
-          ),
+          openings:
+            floorPlan.revision.openings,
+        }),
       }
     );
 
 
-  if (
-    !response.ok
-  ) {
+  if (!response.ok) {
 
-    const errorText =
+    const text =
       await response.text();
 
 
     throw new Error(
       `Could not save revision ` +
-      `(${response.status} ${response.statusText}): ` +
-      `${errorText || "No error response from server."}`
+      `(${response.status}): ${text}`
     );
-
   }
 
 
@@ -277,7 +186,96 @@ export async function saveCorrectedRevision(
 
 
 // =========================================================
-// IMAGE URL
+// SAVE SCALE
+// =========================================================
+
+export async function saveFloorPlanMeasurement(
+  floorPlanId: number,
+  start: PixelPoint,
+  end: PixelPoint,
+  actualDistance: number,
+  unit: string
+): Promise<FloorPlanMeasurement> {
+
+  const response =
+    await fetch(
+      `${API_URL}/api/floorplans/${floorPlanId}/measurements`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        body: JSON.stringify({
+          startX: start.x,
+          startY: start.y,
+
+          endX: end.x,
+          endY: end.y,
+
+          actualDistance,
+          unit,
+        }),
+      }
+    );
+
+
+  if (!response.ok) {
+
+    const text =
+      await response.text();
+
+
+    throw new Error(
+      `Could not save scale ` +
+      `(${response.status}): ${text}`
+    );
+  }
+
+
+  return await response.json();
+}
+
+
+// =========================================================
+// GET LATEST SCALE
+// =========================================================
+
+export async function getLatestMeasurement(
+  floorPlanId: number
+): Promise<FloorPlanMeasurement | null> {
+
+  const response =
+    await fetch(
+      `${API_URL}/api/floorplans/${floorPlanId}/measurements/latest`
+    );
+
+
+  if (response.status === 404) {
+    return null;
+  }
+
+
+  if (!response.ok) {
+
+    const text =
+      await response.text();
+
+
+    throw new Error(
+      `Could not load scale: ${text}`
+    );
+  }
+
+
+  return await response.json();
+}
+
+
+// =========================================================
+// IMAGE
 // =========================================================
 
 export function getImageUrl(
@@ -285,5 +283,62 @@ export function getImageUrl(
 ): string {
 
   return `${API_URL}${imagePath}`;
+}
 
+// =========================================================
+// GET ALL FLOOR PLANS
+// =========================================================
+
+export async function getAllFloorPlans() {
+
+  const response =
+    await fetch(
+      `${API_URL}/api/floorplans`
+    );
+
+
+  if (!response.ok) {
+
+    const text =
+      await response.text();
+
+
+    throw new Error(
+      `Could not load floor plans: ${text}`
+    );
+  }
+
+
+  return await response.json();
+}
+
+
+// =========================================================
+// DELETE FLOOR PLAN
+// =========================================================
+
+export async function deleteFloorPlan(
+  floorPlanId: number
+): Promise<void> {
+
+  const response =
+    await fetch(
+      `${API_URL}/api/floorplans/${floorPlanId}`,
+      {
+        method: "DELETE",
+      }
+    );
+
+
+  if (!response.ok) {
+
+    const text =
+      await response.text();
+
+
+    throw new Error(
+      `Could not delete floor plan ` +
+      `(${response.status}): ${text}`
+    );
+  }
 }

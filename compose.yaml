@@ -1,0 +1,89 @@
+services:
+
+  # =========================================================
+  # PYTHON DETECTOR
+  # =========================================================
+  detector:
+    build:
+      context: ./ProjectMaster
+      dockerfile: Dockerfile
+
+    image: floorplan-detector
+
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    networks:
+      - floorplan-network
+
+
+  # =========================================================
+  # ASP.NET API
+  # =========================================================
+  floorplan-api:
+    build:
+      context: ./FloorPlanSystem/FloorPlan.Api
+      dockerfile: Dockerfile
+
+    image: floorplan-api
+
+    depends_on:
+      - detector
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: "Development"
+
+      PythonDetection__BaseUrl: "http://detector:8000"
+
+      ConnectionStrings__DefaultConnection: "Data Source=/app/data/floorplan.db"
+
+      Frontend__Origins: "http://localhost:5173;http://localhost:3000"
+
+    ports:
+      - "127.0.0.1:5131:8080"
+
+    volumes:
+      - floorplan-db:/app/data
+      - floorplan-uploads:/app/wwwroot/uploads
+
+    networks:
+      - floorplan-network
+
+
+  # =========================================================
+  # REACT FRONTEND
+  # =========================================================
+  floorplan-web:
+    build:
+      context: ./FloorPlanSystem/FloorPlan.Web
+      dockerfile: Dockerfile
+
+    image: floorplan-web
+
+    depends_on:
+      - floorplan-api
+
+    ports:
+      - "127.0.0.1:3000:80"
+
+    networks:
+      - floorplan-network
+
+
+# ===========================================================
+# NETWORK
+# ===========================================================
+networks:
+  floorplan-network:
+    name: floorplan-network
+
+
+# ===========================================================
+# PERSISTENT VOLUMES
+# ===========================================================
+volumes:
+  floorplan-db:
+    name: floorplan-db
+
+  floorplan-uploads:
+    name: floorplan-uploads
