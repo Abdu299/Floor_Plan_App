@@ -269,7 +269,7 @@ If the model weights are not included in the repository, download them from:
 
 ```text
 MODEL WEIGHTS DOWNLOAD LINK:
-ADD_LINK_HERE
+i will add it later (if i remember :))
 ```
 
 ---
