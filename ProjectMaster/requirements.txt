@@ -1,0 +1,51 @@
+# ============================================================
+# ProjectMaster - Python dependencies
+# Tested with Python 3.11
+# ============================================================
+
+# Core
+numpy==1.26.4
+opencv-python==4.10.0.84
+opencv-python-headless==4.10.0.84
+pillow==12.3.0
+scipy==1.17.1
+shapely==2.1.2
+
+# PyTorch
+torch==2.2.2
+torchvision==0.17.2
+
+# YOLO
+ultralytics==8.4.116
+
+# OCR
+easyocr==1.7.2
+scikit-image==0.26.0
+python-bidi==0.6.11
+pyclipper==1.4.0
+
+# OpenMMLab dependencies
+# MMCV itself is installed separately in install_openmmlab.sh
+mmengine==0.10.7
+mmdet==3.3.0
+pycocotools==2.0.11
+
+# Needed when MMCV must compile from source
+ninja==1.13.0
+psutil==7.2.2
+
+# Data
+pandas==3.0.5
+
+# API
+fastapi==0.141.1
+uvicorn==0.52.1
+python-multipart==0.0.32
+
+# HTTP
+requests==2.34.2
+
+# Utilities
+PyYAML==6.0.3
+tqdm==4.70.0
+packaging==26.3

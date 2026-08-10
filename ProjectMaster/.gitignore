@@ -1,0 +1,27 @@
+__pycache__/
+floorPlant client3/
+images/
+plan client3/
+planss client3/
+room_plan_conf_0.5_cascade client3/
+floorPlan.png
+best.pt
+results
+images2/
+images3/
+archive/
+mmdetection_configs/
+weights/cascade_swin_latest.pth
+weights/best.pt
+*.pth
+/results
+/results1
+/old
+/walls_results
+/images1
+/images_Ai
+/tests
+/result_new
+/images_A
+
+
