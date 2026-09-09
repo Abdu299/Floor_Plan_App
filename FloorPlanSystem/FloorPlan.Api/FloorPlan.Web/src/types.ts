@@ -63,8 +63,9 @@ export interface Door {
   room1:
     ConnectedRoom;
 
+  // null means the door connects room1 to Outside.
   room2:
-    ConnectedRoom;
+    ConnectedRoom | null;
 
   isUserAdded?: boolean;
 }

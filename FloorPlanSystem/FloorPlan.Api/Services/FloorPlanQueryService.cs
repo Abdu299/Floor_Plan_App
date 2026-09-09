@@ -560,18 +560,20 @@ public class FloorPlanQueryService
                                 },
 
                             Room2 =
-                                new ConnectedRoom
-                                {
-                                    Id =
-                                        door
-                                            .Room2
-                                            .SourceElementId,
+                                door.Room2 is null
+                                    ? null
+                                    : new ConnectedRoom
+                                    {
+                                        Id =
+                                            door
+                                                .Room2
+                                                .SourceElementId,
 
-                                    Name =
-                                        door
-                                            .Room2
-                                            .Name
-                                }
+                                        Name =
+                                            door
+                                                .Room2
+                                                .Name
+                                    }
                         }
                 )
 

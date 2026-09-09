@@ -1430,8 +1430,10 @@ function AnalyzePage() {
           .rooms;
 
 
+      // A door only needs one connected room.
+      // room2 may be null, which represents Outside.
       if (
-        rooms.length < 2
+        rooms.length < 1
       ) {
         return;
       }
@@ -1480,13 +1482,18 @@ function AnalyzePage() {
                   rooms[0].name,
               },
 
-              room2: {
-                id:
-                  rooms[1].id,
+              // Preserve the old default when two or more rooms exist.
+              // If there is only one room, the other side is Outside.
+              room2:
+                rooms.length > 1
+                  ? {
+                      id:
+                        rooms[1].id,
 
-                name:
-                  rooms[1].name,
-              },
+                      name:
+                        rooms[1].name,
+                    }
+                  : null,
 
               isUserAdded:
                 true,
@@ -2109,7 +2116,7 @@ function AnalyzePage() {
                         : door.room1,
 
                     room2:
-                      door.room2.id === roomId
+                      door.room2?.id === roomId
                         ? {
                             ...door.room2,
 
@@ -2273,7 +2280,7 @@ function AnalyzePage() {
       "room2",
 
     roomId:
-      number
+      number | null
   ) {
 
     setSaveMessage(
@@ -2290,6 +2297,41 @@ function AnalyzePage() {
       current => {
 
         if (!current) {
+          return current;
+        }
+
+
+        // Only room2 may be Outside/null.
+        if (
+          side === "room2"
+          &&
+          roomId === null
+        ) {
+          return {
+            ...current,
+
+            revision: {
+              ...current.revision,
+
+              doors:
+                current
+                  .revision
+                  .doors
+                  .map(
+                    door =>
+                      door.id === doorId
+                        ? {
+                            ...door,
+                            room2: null,
+                          }
+                        : door
+                  ),
+            },
+          };
+        }
+
+
+        if (roomId === null) {
           return current;
         }
 
@@ -2485,7 +2527,7 @@ function AnalyzePage() {
                 door =>
                   door.room1.id !== id
                   &&
-                  door.room2.id !== id
+                  door.room2?.id !== id
               );
 
 
@@ -3796,7 +3838,7 @@ function AnalyzePage() {
 
                                       disabled={
                                         room.id ===
-                                        selectedDoor.room2.id
+                                        selectedDoor.room2?.id
                                       }
                                     >
 
@@ -3828,7 +3870,8 @@ function AnalyzePage() {
 
                           <select
                             value={
-                              selectedDoor.room2.id
+                              selectedDoor.room2?.id
+                              ?? "outside"
                             }
 
                             onChange={
@@ -3836,12 +3879,21 @@ function AnalyzePage() {
                                 changeDoorRoom(
                                   selectedDoor.id,
                                   "room2",
-                                  Number(
-                                    event.target.value
-                                  )
+                                  event.target.value ===
+                                    "outside"
+                                    ? null
+                                    : Number(
+                                        event.target.value
+                                      )
                                 )
                             }
                           >
+
+                            <option
+                              value="outside"
+                            >
+                              Outside
+                            </option>
 
                             {
                               floorPlan

@@ -244,10 +244,10 @@ public class DoorEntity
         null!;
 
 
-    public int Room2Id { get; set; }
+    // null represents Outside for an exterior door.
+    public int? Room2Id { get; set; }
 
-    public RoomEntity Room2 { get; set; } =
-        null!;
+    public RoomEntity? Room2 { get; set; }
 }
 
 

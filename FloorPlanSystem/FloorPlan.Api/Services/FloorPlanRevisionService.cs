@@ -390,12 +390,14 @@ public class FloorPlanRevisionService
                     );
 
 
-                var room2 =
-                    GetRoom(
-                        roomMap,
-                        sourceDoor.Room2.Id,
-                        $"Door {sourceDoor.Id}"
-                    );
+                RoomEntity? room2 =
+                    sourceDoor.Room2 is null
+                        ? null
+                        : GetRoom(
+                            roomMap,
+                            sourceDoor.Room2.Id,
+                            $"Door {sourceDoor.Id}"
+                        );
 
 
                 baseDoorConfidences
@@ -447,8 +449,9 @@ public class FloorPlanRevisionService
                         Room1Id =
                             room1.Id,
 
+                        // null means Room1 <-> Outside.
                         Room2Id =
-                            room2.Id
+                            room2?.Id
                     };
 
 
@@ -746,7 +749,10 @@ public class FloorPlanRevisionService
             );
 
 
+            // room2 may be null for an exterior door.
             if (
+                door.Room2 is not null
+                &&
                 door.Room1.Id ==
                 door.Room2.Id
             )

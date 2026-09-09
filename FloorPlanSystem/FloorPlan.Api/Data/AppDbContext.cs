@@ -122,7 +122,8 @@ public class AppDbContext : DbContext
             .HasOne(x => x.Room2)
             .WithMany()
             .HasForeignKey(x => x.Room2Id)
-            .OnDelete(DeleteBehavior.Restrict);
+            .OnDelete(DeleteBehavior.Restrict)
+            .IsRequired(false);
 
 
         // -------------------------------------------------

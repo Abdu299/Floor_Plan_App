@@ -227,14 +227,20 @@ public class FloorPlanPersistenceService
                 }
 
 
-                if (!roomMap.TryGetValue(
-                        detectedDoor.Room2.Id,
-                        out var room2))
+                RoomEntity? room2 = null;
+
+
+                if (detectedDoor.Room2 is not null)
                 {
-                    throw new InvalidOperationException(
-                        $"Door {detectedDoor.Id} references " +
-                        $"unknown room {detectedDoor.Room2.Id}."
-                    );
+                    if (!roomMap.TryGetValue(
+                            detectedDoor.Room2.Id,
+                            out room2))
+                    {
+                        throw new InvalidOperationException(
+                            $"Door {detectedDoor.Id} references " +
+                            $"unknown room {detectedDoor.Room2.Id}."
+                        );
+                    }
                 }
 
 
@@ -267,7 +273,8 @@ public class FloorPlanPersistenceService
 
                     Room1Id = room1.Id,
 
-                    Room2Id = room2.Id
+                    // null means Room1 <-> Outside.
+                    Room2Id = room2?.Id
                 };
 
 

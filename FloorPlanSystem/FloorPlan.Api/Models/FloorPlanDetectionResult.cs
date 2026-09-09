@@ -144,8 +144,8 @@ public class DoorDetection
         new();
 
 
-    public ConnectedRoom Room2 { get; set; } =
-        new();
+    // null means this door connects Room1 to Outside.
+    public ConnectedRoom? Room2 { get; set; }
 
 
     public double Confidence { get; set; }
