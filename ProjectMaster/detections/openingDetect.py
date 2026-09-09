@@ -26,7 +26,6 @@ class opening_detect:
         support_len=10,
         exclude_distance=10,
         room_connect_distance=25,
-        room_touch_distance=3,
         duplicate_distance=10,
     ):
         self.thick_lines_img = thick_lines_img
@@ -42,7 +41,6 @@ class opening_detect:
         self.support_len = support_len
         self.exclude_distance = exclude_distance
         self.room_connect_distance = room_connect_distance
-        self.room_touch_distance = room_touch_distance
         self.duplicate_distance = duplicate_distance
 
         self.mask = self._load_mask(thick_lines_img)
@@ -242,80 +240,71 @@ class opening_detect:
 
         return candidates
 
-    def _rooms_touch(self, room1, room2):
+    def _rooms_are_touching(self, room1, room2):
         """
-        Returns True only when the two room polygons touch each other,
-        overlap at their borders, or are separated by a very small tolerance.
+        Returns True when two different rooms touch, overlap, or are separated
+        only by a small wall-sized distance.
 
-        A small tolerance is useful because detected room polygons are not always
-        perfectly aligned pixel-for-pixel.
+        room_connect_distance is reused as the allowed distance because room
+        polygons may stop at opposite sides of a wall instead of sharing the
+        exact same boundary.
         """
+        if room1 is None or room2 is None or room1 is room2:
+            return False
+
         poly1 = room1.roomPoly
         poly2 = room2.roomPoly
 
         if poly1.is_empty or poly2.is_empty:
             return False
 
-        if poly1.touches(poly2) or poly1.boundary.intersects(poly2.boundary):
-            return True
-
-        boundary_distance = poly1.boundary.distance(poly2.boundary)
-        return boundary_distance <= self.room_touch_distance
+        return (
+            poly1.touches(poly2)
+            or poly1.intersects(poly2)
+            or poly1.distance(poly2) <= self.room_connect_distance
+        )
 
     def _find_connected_rooms(self, opening_poly):
         """
-        Finds a pair of rooms for the opening.
+        Finds two rooms around an opening candidate.
 
-        The pair is accepted only when:
-        1. Both rooms are close enough to the opening.
-        2. The two room polygons touch each other, within room_touch_distance.
-        3. The opening is close to the shared border area between the rooms.
+        The opening is valid only when:
+        1. both rooms are close enough to the opening, and
+        2. the two rooms touch each other or are separated only by the wall.
         """
-        best_pair = None
-        best_score = float("inf")
+        nearby_rooms = []
 
-        for i, room1 in enumerate(self.rooms):
-            for room2 in self.rooms[i + 1:]:
-                if not self._rooms_touch(room1, room2):
-                    continue
+        for room in self.rooms:
+            distance_to_opening = room.roomPoly.distance(opening_poly)
 
-                distance1 = room1.roomPoly.distance(opening_poly)
-                distance2 = room2.roomPoly.distance(opening_poly)
+            if distance_to_opening <= self.room_connect_distance:
+                nearby_rooms.append((distance_to_opening, room))
 
-                if distance1 > self.room_connect_distance:
-                    continue
-                if distance2 > self.room_connect_distance:
-                    continue
-
-                # Approximate the shared border. Buffering handles small detection
-                # gaps between room polygons.
-                shared_border_zone = (
-                    room1.roomPoly.boundary.buffer(self.room_touch_distance)
-                    .intersection(
-                        room2.roomPoly.boundary.buffer(self.room_touch_distance)
-                    )
-                )
-
-                if shared_border_zone.is_empty:
-                    continue
-
-                if opening_poly.distance(shared_border_zone) > self.room_connect_distance:
-                    continue
-
-                score = (
-                    distance1
-                    + distance2
-                    + opening_poly.distance(shared_border_zone)
-                )
-
-                if score < best_score:
-                    best_score = score
-                    best_pair = (room1, room2)
-
-        if best_pair is None:
+        if len(nearby_rooms) < 2:
             return None, None
 
-        return best_pair
+        # Find the best valid pair instead of simply taking the two nearest rooms.
+        valid_pairs = []
+
+        for i in range(len(nearby_rooms)):
+            distance1, room1 = nearby_rooms[i]
+
+            for j in range(i + 1, len(nearby_rooms)):
+                distance2, room2 = nearby_rooms[j]
+
+                if not self._rooms_are_touching(room1, room2):
+                    continue
+
+                pair_score = distance1 + distance2
+                valid_pairs.append((pair_score, room1, room2))
+
+        if not valid_pairs:
+            return None, None
+
+        valid_pairs.sort(key=lambda item: item[0])
+        _, room1, room2 = valid_pairs[0]
+
+        return room1, room2
 
     def _is_duplicate(self, poly, openings):
         test_poly = poly.buffer(self.duplicate_distance)
