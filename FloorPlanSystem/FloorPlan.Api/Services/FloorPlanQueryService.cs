@@ -8,6 +8,13 @@ namespace FloorPlan.Api.Services;
 
 public class FloorPlanQueryService
 {
+    private static readonly JsonSerializerOptions BoundaryJsonOptions =
+        new(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+
     private readonly AppDbContext _db;
 
 
@@ -746,8 +753,61 @@ public class FloorPlanQueryService
                 windows,
 
             Openings =
-                openings
+                openings,
+
+            BuildingBoundary =
+                DeserializeBuildingBoundary(
+                    revision.BuildingBoundaryJson
+                )
         };
+    }
+
+
+    // =========================================================
+    // DESERIALIZE BUILDING BOUNDARY
+    // =========================================================
+
+    private static BuildingBoundaryDetection
+        DeserializeBuildingBoundary(
+            string? json)
+    {
+        if (
+            string.IsNullOrWhiteSpace(
+                json
+            )
+        )
+        {
+            return new BuildingBoundaryDetection();
+        }
+
+
+        try
+        {
+            return JsonSerializer.Deserialize<
+                BuildingBoundaryDetection
+            >(
+                json,
+                BoundaryJsonOptions
+            )
+            ?? new BuildingBoundaryDetection();
+        }
+        catch
+        {
+            // Old revisions or malformed historic data should still load.
+            return new BuildingBoundaryDetection
+            {
+                AutomaticAssessment =
+                    new BoundaryAutomaticAssessment
+                    {
+                        Valid = false,
+                        RequiresReview = true,
+                        Method = "hybrid",
+                        CandidateSource = "none",
+                        Message =
+                            "Stored building-boundary JSON could not be read."
+                    }
+            };
+        }
     }
 
 

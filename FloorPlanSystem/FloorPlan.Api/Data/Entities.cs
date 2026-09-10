@@ -123,6 +123,14 @@ public class FloorPlanRevisionEntity
     public bool HasKitchen { get; set; }
 
 
+    // Canonical boundary JSON for THIS immutable revision.
+    //
+    // We keep the complete boundary object as JSON so edits, review state,
+    // provenance and automatic-assessment metadata round-trip together.
+    public string BuildingBoundaryJson { get; set; } =
+        "{}";
+
+
     public DateTime CreatedAtUtc { get; set; }
 
 

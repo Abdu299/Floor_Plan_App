@@ -18,6 +18,75 @@ export interface ConnectedRoom {
 }
 
 
+export type BoundaryKind =
+  | "outer"
+  | "usable";
+
+
+export type BoundaryReviewStatus =
+  | "unreviewed"
+  | "edited"
+  | "confirmed"
+  | "needs-recalculation"
+  | string;
+
+
+// =========================================================
+// BUILDING BOUNDARY
+// =========================================================
+
+export interface BoundaryAutomaticAssessment {
+  valid: boolean;
+
+  requiresReview: boolean;
+
+  method: string;
+
+  candidateSource: string;
+
+  message: string;
+
+  roomAreaCoverage: number;
+
+  roomCentroidCoverage: number;
+
+  wallSupport: number;
+
+  selectedStructuralGapPixels: number;
+
+  estimatedWallThicknessPixels: number;
+}
+
+
+export interface BuildingBoundary {
+  // Current geometry for this revision.
+  // Coordinates are always ORIGINAL IMAGE PIXELS.
+  outerPolygon: PixelPoint[];
+
+  usablePolygon: PixelPoint[];
+
+
+  // Who produced the CURRENT geometry.
+  source:
+    "ai" |
+    "user" |
+    string;
+
+
+  reviewStatus:
+    BoundaryReviewStatus;
+
+
+  isUserEdited: boolean;
+
+
+  // Preserved detector metadata. This tells us how trustworthy the
+  // automatic result was, but NEVER makes the boundary read-only.
+  automaticAssessment:
+    BoundaryAutomaticAssessment;
+}
+
+
 // =========================================================
 // ROOM
 // =========================================================
@@ -35,11 +104,8 @@ export interface Room {
 
   areaPixels: number;
 
-
-  // Manually entered real area.
   areaSquareMetres:
     number | null;
-
 
   isUserAdded?: boolean;
 }
@@ -174,6 +240,9 @@ export interface FloorPlanRevision {
 
   openings:
     Opening[];
+
+  buildingBoundary:
+    BuildingBoundary;
 }
 
 
@@ -243,6 +312,7 @@ export interface SavedFloorPlanSummary {
 
   openingCount: number;
 }
+
 
 // =========================================================
 // FLOOR PLAN MEASUREMENT

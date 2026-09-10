@@ -22,6 +22,7 @@ import {
 } from "./api";
 
 import type {
+  BoundaryKind,
   BoundingBox,
   FloorPlan,
   PixelPoint,
@@ -613,6 +614,15 @@ function AnalyzePage() {
 
 
   const [
+    boundaryEditMode,
+    setBoundaryEditMode,
+  ] =
+    useState<BoundaryKind | null>(
+      null
+    );
+
+
+  const [
     uploading,
     setUploading,
   ] =
@@ -698,6 +708,11 @@ function AnalyzePage() {
           );
 
 
+          setBoundaryEditMode(
+            null
+          );
+
+
           return;
         }
 
@@ -769,6 +784,11 @@ function AnalyzePage() {
 
 
           setAddMode(
+            null
+          );
+
+
+          setBoundaryEditMode(
             null
           );
 
@@ -890,6 +910,11 @@ function AnalyzePage() {
 
 
     setSaveMessage(
+      null
+    );
+
+
+    setBoundaryEditMode(
       null
     );
 
@@ -1155,6 +1180,11 @@ function AnalyzePage() {
       );
 
 
+      setBoundaryEditMode(
+        null
+      );
+
+
       selectElement(
         null,
         null
@@ -1187,6 +1217,308 @@ function AnalyzePage() {
       );
 
     }
+
+  }
+
+
+  // =========================================================
+  // BUILDING BOUNDARY EDITING
+  // =========================================================
+  //
+  // IMPORTANT:
+  // automaticAssessment.valid is only the detector's opinion.
+  // It NEVER disables editing. A user may correct a boundary
+  // whether the automatic result was valid=true or valid=false.
+  // =========================================================
+
+  function updateBoundaryPolygon(
+    kind:
+      BoundaryKind,
+
+    update: (
+      polygon: PixelPoint[]
+    ) => PixelPoint[]
+  ) {
+
+    setSaveMessage(
+      null
+    );
+
+
+    setError(
+      null
+    );
+
+
+    setFloorPlan(
+      current => {
+
+        if (!current) {
+          return current;
+        }
+
+
+        const boundary =
+          current
+            .revision
+            .buildingBoundary;
+
+
+        const currentPolygon =
+          kind === "outer"
+            ? boundary.outerPolygon
+            : boundary.usablePolygon;
+
+
+        const nextPolygon =
+          update(
+            currentPolygon
+          );
+
+
+        return {
+          ...current,
+
+          revision: {
+            ...current.revision,
+
+            buildingBoundary: {
+              ...boundary,
+
+              outerPolygon:
+                kind === "outer"
+                  ? nextPolygon
+                  : boundary.outerPolygon,
+
+              usablePolygon:
+                kind === "usable"
+                  ? nextPolygon
+                  : boundary.usablePolygon,
+
+              // Current geometry is now user-authored.
+              // The original automaticAssessment is preserved.
+              source:
+                "user",
+
+              reviewStatus:
+                "edited",
+
+              isUserEdited:
+                true,
+            },
+          },
+        };
+
+      }
+    );
+
+  }
+
+
+  function moveBoundaryPoint(
+    kind:
+      BoundaryKind,
+
+    pointIndex:
+      number,
+
+    point:
+      PixelPoint
+  ) {
+
+    updateBoundaryPolygon(
+      kind,
+
+      polygon =>
+        polygon.map(
+          (
+            currentPoint,
+            index
+          ) =>
+            index === pointIndex
+              ? point
+              : currentPoint
+        )
+    );
+
+  }
+
+
+  function insertBoundaryPoint(
+    kind:
+      BoundaryKind,
+
+    insertAfterIndex:
+      number,
+
+    point:
+      PixelPoint
+  ) {
+
+    updateBoundaryPolygon(
+      kind,
+
+      polygon => {
+
+        const copy =
+          [...polygon];
+
+
+        copy.splice(
+          insertAfterIndex + 1,
+          0,
+          point
+        );
+
+
+        return copy;
+
+      }
+    );
+
+  }
+
+
+  function deleteBoundaryPoint(
+    kind:
+      BoundaryKind,
+
+    pointIndex:
+      number
+  ) {
+
+    updateBoundaryPolygon(
+      kind,
+
+      polygon => {
+
+        if (
+          polygon.length <= 3
+        ) {
+          return polygon;
+        }
+
+
+        return polygon.filter(
+          (
+            _,
+            index
+          ) =>
+            index !== pointIndex
+        );
+
+      }
+    );
+
+  }
+
+
+  function toggleBoundaryEdit(
+    kind:
+      BoundaryKind
+  ) {
+
+    if (!floorPlan) {
+      return;
+    }
+
+
+    const polygon =
+      kind === "outer"
+        ? floorPlan
+            .revision
+            .buildingBoundary
+            .outerPolygon
+
+        : floorPlan
+            .revision
+            .buildingBoundary
+            .usablePolygon;
+
+
+    if (
+      polygon.length < 3
+    ) {
+
+      setError(
+        `The ${kind} boundary does not contain a polygon to edit yet.`
+      );
+
+
+      return;
+    }
+
+
+    setError(
+      null
+    );
+
+
+    setSaveMessage(
+      null
+    );
+
+
+    setAddMode(
+      null
+    );
+
+
+    selectElement(
+      null,
+      null
+    );
+
+
+    setBoundaryEditMode(
+      current =>
+        current === kind
+          ? null
+          : kind
+    );
+
+  }
+
+
+  function confirmBoundary() {
+
+    setSaveMessage(
+      null
+    );
+
+
+    setError(
+      null
+    );
+
+
+    setFloorPlan(
+      current => {
+
+        if (!current) {
+          return current;
+        }
+
+
+        return {
+          ...current,
+
+          revision: {
+            ...current.revision,
+
+            buildingBoundary: {
+              ...current
+                .revision
+                .buildingBoundary,
+
+              reviewStatus:
+                "confirmed",
+            },
+          },
+        };
+
+      }
+    );
 
   }
 
@@ -3043,6 +3375,262 @@ function AnalyzePage() {
               </div>
 
 
+              {/* BUILDING BOUNDARY */}
+
+              <div
+                className={
+                  floorPlan
+                    .revision
+                    .buildingBoundary
+                    .automaticAssessment
+                    .valid
+
+                    ? "boundary-panel boundary-panel-valid"
+                    : "boundary-panel boundary-panel-review"
+                }
+              >
+
+                <div className="boundary-panel-header">
+
+                  <div>
+
+                    <h3>
+                      Building boundary
+                    </h3>
+
+
+                    <p>
+                      {
+                        floorPlan
+                          .revision
+                          .buildingBoundary
+                          .automaticAssessment
+                          .valid
+
+                          ? "Automatic boundary check passed."
+                          : "Automatic boundary is uncertain and should be reviewed."
+                      }
+
+                      {" "}
+
+                      You can edit it in either case.
+                    </p>
+
+                  </div>
+
+
+                  <div className="boundary-status">
+
+                    {
+                      floorPlan
+                        .revision
+                        .buildingBoundary
+                        .automaticAssessment
+                        .valid
+                        ? "AI: valid"
+                        : "AI: review"
+                    }
+
+                  </div>
+
+                </div>
+
+
+                <div className="boundary-meta">
+
+                  <span>
+                    Current source:{" "}
+
+                    <strong>
+                      {
+                        floorPlan
+                          .revision
+                          .buildingBoundary
+                          .source
+                      }
+                    </strong>
+                  </span>
+
+
+                  <span>
+                    Review:{" "}
+
+                    <strong>
+                      {
+                        floorPlan
+                          .revision
+                          .buildingBoundary
+                          .reviewStatus
+                      }
+                    </strong>
+                  </span>
+
+
+                  <span>
+                    Method:{" "}
+
+                    <strong>
+                      {
+                        floorPlan
+                          .revision
+                          .buildingBoundary
+                          .automaticAssessment
+                          .candidateSource
+                      }
+                    </strong>
+                  </span>
+
+                </div>
+
+
+                {
+                  floorPlan
+                    .revision
+                    .buildingBoundary
+                    .automaticAssessment
+                    .message
+                  && (
+
+                    <p className="boundary-message">
+
+                      {
+                        floorPlan
+                          .revision
+                          .buildingBoundary
+                          .automaticAssessment
+                          .message
+                      }
+
+                    </p>
+
+                  )
+                }
+
+
+                <div className="boundary-actions">
+
+                  <button
+                    type="button"
+
+                    className={
+                      boundaryEditMode === "outer"
+                        ? "boundary-button active"
+                        : "boundary-button"
+                    }
+
+                    disabled={
+                      floorPlan
+                        .revision
+                        .buildingBoundary
+                        .outerPolygon
+                        .length < 3
+                    }
+
+                    onClick={
+                      () =>
+                        toggleBoundaryEdit(
+                          "outer"
+                        )
+                    }
+                  >
+
+                    {
+                      boundaryEditMode === "outer"
+                        ? "Stop editing outer"
+                        : "Edit outer boundary"
+                    }
+
+                  </button>
+
+
+                  <button
+                    type="button"
+
+                    className={
+                      boundaryEditMode === "usable"
+                        ? "boundary-button active"
+                        : "boundary-button"
+                    }
+
+                    disabled={
+                      floorPlan
+                        .revision
+                        .buildingBoundary
+                        .usablePolygon
+                        .length < 3
+                    }
+
+                    onClick={
+                      () =>
+                        toggleBoundaryEdit(
+                          "usable"
+                        )
+                    }
+                  >
+
+                    {
+                      boundaryEditMode === "usable"
+                        ? "Stop editing usable"
+                        : "Edit usable boundary"
+                    }
+
+                  </button>
+
+
+                  <button
+                    type="button"
+
+                    className="boundary-confirm-button"
+
+                    disabled={
+                      floorPlan
+                        .revision
+                        .buildingBoundary
+                        .outerPolygon
+                        .length < 3
+                      ||
+                      floorPlan
+                        .revision
+                        .buildingBoundary
+                        .usablePolygon
+                        .length < 3
+                    }
+
+                    onClick={
+                      confirmBoundary
+                    }
+                  >
+
+                    Mark boundary reviewed
+
+                  </button>
+
+                </div>
+
+
+                {
+                  boundaryEditMode && (
+
+                    <div className="boundary-edit-instruction">
+
+                      Editing{" "}
+                      <strong>
+                        {
+                          boundaryEditMode
+                        }
+                      </strong>
+                      {" "}boundary: drag a point to move it.
+                      Double-click a boundary line to add a point.
+                      Double-click a point to remove it.
+
+                    </div>
+
+                  )
+                }
+
+              </div>
+
+
               {/* ADD TOOLBAR */}
 
               <div className="add-toolbar">
@@ -3540,6 +4128,24 @@ function AnalyzePage() {
 
                 </div>
 
+
+                <div>
+
+                  <span className="legend-color boundary-outer-color" />
+
+                  Outer boundary
+
+                </div>
+
+
+                <div>
+
+                  <span className="legend-color boundary-usable-color" />
+
+                  Usable boundary
+
+                </div>
+
               </div>
 
 
@@ -3566,6 +4172,10 @@ function AnalyzePage() {
                       addMode
                     }
 
+                    boundaryEditMode={
+                      boundaryEditMode
+                    }
+
                     onSelect={
                       selectElement
                     }
@@ -3576,6 +4186,18 @@ function AnalyzePage() {
 
                     onCreateElement={
                       createElement
+                    }
+
+                    onMoveBoundaryPoint={
+                      moveBoundaryPoint
+                    }
+
+                    onInsertBoundaryPoint={
+                      insertBoundaryPoint
+                    }
+
+                    onDeleteBoundaryPoint={
+                      deleteBoundaryPoint
                     }
                   />
 

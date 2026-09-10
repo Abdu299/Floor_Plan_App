@@ -163,6 +163,11 @@ export async function saveCorrectedRevision(
 
           openings:
             floorPlan.revision.openings,
+
+          // The boundary is part of the revision JSON and must always
+          // round-trip with the rest of the floor-plan structure.
+          buildingBoundary:
+            floorPlan.revision.buildingBoundary,
         }),
       }
     );

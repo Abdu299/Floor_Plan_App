@@ -1135,3 +1135,125 @@ input {
 
   font-weight: 700;
 }
+/* ======================================================= */
+/* BUILDING BOUNDARY */
+/* ======================================================= */
+
+.boundary-panel {
+  margin: 18px 0;
+  padding: 16px 18px;
+  border-radius: 10px;
+  border: 1px solid #d0d5dd;
+  background: #ffffff;
+}
+
+.boundary-panel-valid {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.boundary-panel-review {
+  border-color: #fbbf24;
+  background: #fffbeb;
+}
+
+.boundary-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.boundary-panel-header h3 {
+  margin: 0 0 5px;
+  color: #101828;
+  font-size: 17px;
+}
+
+.boundary-panel-header p {
+  margin: 0;
+  color: #475467;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.boundary-status {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  color: #344054;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.boundary-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 12px;
+  color: #475467;
+  font-size: 12px;
+}
+
+.boundary-message {
+  margin: 10px 0 0;
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.boundary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.boundary-button,
+.boundary-confirm-button {
+  padding: 9px 13px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.boundary-button.active {
+  border-color: #7c3aed;
+  background: #f5f3ff;
+  color: #5b21b6;
+}
+
+.boundary-confirm-button {
+  border-color: #101828;
+  background: #101828;
+  color: #ffffff;
+}
+
+.boundary-button:disabled,
+.boundary-confirm-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.boundary-edit-instruction {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #ddd6fe;
+  background: #f5f3ff;
+  color: #5b21b6;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.boundary-outer-color {
+  background: #d946ef !important;
+}
+
+.boundary-usable-color {
+  background: #0891b2 !important;
+}

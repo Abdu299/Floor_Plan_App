@@ -6,6 +6,10 @@ namespace FloorPlan.Api.Services;
 
 public class FloorPlanPersistenceService
 {
+    private static readonly JsonSerializerOptions BoundaryJsonOptions =
+        new(JsonSerializerDefaults.Web);
+
+
     private readonly AppDbContext _db;
     private readonly IWebHostEnvironment _environment;
 
@@ -150,6 +154,12 @@ public class FloorPlanPersistenceService
 
                 HasKitchen =
                     detection.Validation.HasKitchen,
+
+                BuildingBoundaryJson =
+                    JsonSerializer.Serialize(
+                        detection.BuildingBoundary,
+                        BoundaryJsonOptions
+                    ),
 
                 CreatedAtUtc = DateTime.UtcNow
             };

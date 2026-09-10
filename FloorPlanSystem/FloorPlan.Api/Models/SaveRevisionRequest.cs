@@ -24,6 +24,12 @@ public class SaveRevisionRequest
 
     public List<OpeningDetection> Openings { get; set; } =
         [];
+
+
+    // The boundary is revision data, just like rooms/doors/windows/openings.
+    // It is saved even when the automatic assessment is valid=false.
+    public BuildingBoundaryDetection BuildingBoundary { get; set; } =
+        new();
 }
 
 

@@ -69,6 +69,10 @@ public class FloorPlanRevisionResponse
 
     public List<OpeningDetection> Openings { get; set; } =
         [];
+
+
+    public BuildingBoundaryDetection BuildingBoundary { get; set; } =
+        new();
 }
 
 

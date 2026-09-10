@@ -8,6 +8,13 @@ namespace FloorPlan.Api.Services;
 
 public class FloorPlanRevisionService
 {
+    private static readonly JsonSerializerOptions BoundaryJsonOptions =
+        new(JsonSerializerDefaults.Web)
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+
     private readonly AppDbContext _db;
 
     private readonly FloorPlanValidationService
@@ -92,6 +99,22 @@ public class FloorPlanRevisionService
                 "or does not belong to this floor plan."
             );
         }
+
+
+        // =====================================================
+        // NORMALIZE BOUNDARY PROVENANCE
+        // =====================================================
+        //
+        // Do not rely only on the frontend to tell us whether the
+        // boundary geometry changed. The server compares it with the
+        // base revision and marks the current boundary as user-edited
+        // when necessary.
+        // =====================================================
+
+        NormalizeBoundaryForUserRevision(
+            request.BuildingBoundary,
+            baseRevision.BuildingBoundaryJson
+        );
 
 
         // =====================================================
@@ -267,6 +290,13 @@ public class FloorPlanRevisionService
 
                     HasKitchen =
                         saveValidation.HasKitchen,
+
+
+                    BuildingBoundaryJson =
+                        JsonSerializer.Serialize(
+                            request.BuildingBoundary,
+                            BoundaryJsonOptions
+                        ),
 
 
                     CreatedAtUtc =
@@ -807,6 +837,248 @@ public class FloorPlanRevisionService
                 );
             }
         }
+
+
+        // =====================================================
+        // BUILDING BOUNDARY
+        // =====================================================
+        //
+        // An uncertain AI assessment does NOT prevent saving.
+        // We only validate geometry when polygon coordinates exist.
+        // =====================================================
+
+        if (
+            request.BuildingBoundary
+                .OuterPolygon
+                .Count > 0
+        )
+        {
+            ValidatePolygon(
+                request.BuildingBoundary.OuterPolygon,
+                floorPlan,
+                "Building outer boundary"
+            );
+        }
+
+
+        if (
+            request.BuildingBoundary
+                .UsablePolygon
+                .Count > 0
+        )
+        {
+            ValidatePolygon(
+                request.BuildingBoundary.UsablePolygon,
+                floorPlan,
+                "Building usable boundary"
+            );
+        }
+
+
+        if (
+            string.Equals(
+                request.BuildingBoundary.ReviewStatus,
+                "confirmed",
+                StringComparison.OrdinalIgnoreCase
+            )
+            &&
+            (
+                request.BuildingBoundary.OuterPolygon.Count < 3
+                ||
+                request.BuildingBoundary.UsablePolygon.Count < 3
+            )
+        )
+        {
+            throw new InvalidOperationException(
+                "A confirmed building boundary must contain both " +
+                "outer and usable polygons."
+            );
+        }
+    }
+
+
+    // =========================================================
+    // BOUNDARY PROVENANCE
+    // =========================================================
+
+    private static void NormalizeBoundaryForUserRevision(
+        BuildingBoundaryDetection current,
+        string? baseBoundaryJson)
+    {
+        var baseBoundary =
+            DeserializeBoundary(
+                baseBoundaryJson
+            );
+
+
+        var geometryChanged =
+            !PolygonsEqual(
+                current.OuterPolygon,
+                baseBoundary.OuterPolygon
+            )
+            ||
+            !PolygonsEqual(
+                current.UsablePolygon,
+                baseBoundary.UsablePolygon
+            );
+
+
+        if (geometryChanged)
+        {
+            current.Source =
+                "user";
+
+            current.IsUserEdited =
+                true;
+
+
+            if (
+                !string.Equals(
+                    current.ReviewStatus,
+                    "confirmed",
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            {
+                current.ReviewStatus =
+                    "edited";
+            }
+        }
+        else
+        {
+            if (
+                string.IsNullOrWhiteSpace(
+                    current.Source
+                )
+            )
+            {
+                current.Source =
+                    baseBoundary.Source;
+            }
+
+
+            // Preserve the fact that an already edited boundary remains
+            // user-edited in later revisions even when this save did not
+            // move another point.
+            current.IsUserEdited =
+                current.IsUserEdited
+                ||
+                baseBoundary.IsUserEdited;
+
+
+            if (
+                current.IsUserEdited
+                &&
+                string.Equals(
+                    current.Source,
+                    "ai",
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            {
+                current.Source =
+                    "user";
+            }
+        }
+
+
+        if (
+            string.IsNullOrWhiteSpace(
+                current.ReviewStatus
+            )
+        )
+        {
+            current.ReviewStatus =
+                "unreviewed";
+        }
+
+
+        if (
+            string.IsNullOrWhiteSpace(
+                current.Source
+            )
+        )
+        {
+            current.Source =
+                "ai";
+        }
+    }
+
+
+    private static BuildingBoundaryDetection
+        DeserializeBoundary(
+            string? json)
+    {
+        if (
+            string.IsNullOrWhiteSpace(
+                json
+            )
+        )
+        {
+            return new BuildingBoundaryDetection();
+        }
+
+
+        try
+        {
+            return JsonSerializer.Deserialize<
+                BuildingBoundaryDetection
+            >(
+                json,
+                BoundaryJsonOptions
+            )
+            ?? new BuildingBoundaryDetection();
+        }
+        catch
+        {
+            return new BuildingBoundaryDetection();
+        }
+    }
+
+
+    private static bool PolygonsEqual(
+        IReadOnlyList<PixelPoint> first,
+        IReadOnlyList<PixelPoint> second)
+    {
+        if (
+            first.Count !=
+            second.Count
+        )
+        {
+            return false;
+        }
+
+
+        const double tolerance =
+            0.000001;
+
+
+        for (
+            var index = 0;
+            index < first.Count;
+            index++
+        )
+        {
+            if (
+                Math.Abs(
+                    first[index].X -
+                    second[index].X
+                )
+                > tolerance
+                ||
+                Math.Abs(
+                    first[index].Y -
+                    second[index].Y
+                )
+                > tolerance
+            )
+            {
+                return false;
+            }
+        }
+
+
+        return true;
     }
 
 
