@@ -7,6 +7,7 @@ import cv2
 from detections.room_detection import imageToRooms
 from detections.objectDetect import object_detect
 from detections.openingDetect_new import opening_detect
+from detections.hybrid_boundary_detection import HybridBoundaryDetector
 
 from configs.keep_only_thick_lines import keep_only_thick_lines
 from configs.floorPlan import FloorPlan
@@ -45,6 +46,11 @@ class DetectionPipeline:
             detection_conf=self.detection_conf,
             room_conf=self.room_conf
         )
+
+        # The hybrid boundary detector has no heavy ML model of its own.
+        # It combines the room polygons, thick-wall mask, and optional
+        # door/window hints.
+        self.boundary_detector = HybridBoundaryDetector()
 
         #print("Detection pipeline ready.")
 
@@ -134,6 +140,145 @@ class DetectionPipeline:
                 return getattr(obj, attribute)
 
         return None
+
+    @staticmethod
+    def _empty_boundary_data(message):
+        """
+        Boundary detection must never destroy the rest of a successful
+        floor-plan detection.
+
+        Even if boundary reconstruction fails, the JSON contract remains
+        stable and the frontend can still let the user draw/correct it.
+        """
+        return {
+            "outerPolygon": [],
+            "usablePolygon": [],
+
+            # This describes the CURRENT geometry stored in this revision.
+            # Revision 1 starts as AI-generated. The frontend/API can later
+            # change this to "user" when the user edits the boundary.
+            "source": "ai",
+            "reviewStatus": "unreviewed",
+            "isUserEdited": False,
+
+            # AutomaticAssessment is provenance/quality information from the
+            # detector. It does NOT make the boundary read-only.
+            "automaticAssessment": {
+                "valid": False,
+                "requiresReview": True,
+                "method": "hybrid",
+                "candidateSource": "none",
+                "message": str(message),
+
+                "roomAreaCoverage": 0.0,
+                "roomCentroidCoverage": 0.0,
+                "wallSupport": 0.0,
+                "selectedStructuralGapPixels": 0,
+                "estimatedWallThicknessPixels": 0.0
+            }
+        }
+
+    def _boundary_to_data(self, boundary_result):
+        """
+        Convert HybridBoundaryDetectionResult to the canonical JSON shape.
+
+        IMPORTANT:
+        - outerPolygon and usablePolygon are the actual geometry.
+        - valid=False only means the automatic result is not trusted enough.
+        - The user is allowed to edit the geometry whether valid is True
+          or False.
+        - Debug raster masks are deliberately NOT stored in JSON.
+        """
+
+        if boundary_result is None:
+            return self._empty_boundary_data(
+                "Boundary detector returned no result."
+            )
+
+        outer_polygon = self._polygon_to_points(
+            boundary_result.outer_boundary
+        )
+
+        usable_polygon = self._polygon_to_points(
+            boundary_result.usable_boundary
+        )
+
+        automatic_valid = bool(
+            boundary_result.valid
+        )
+
+        # A result can be provisional (valid=False) and still contain useful
+        # geometry. We preserve that geometry instead of throwing it away.
+        return {
+            "outerPolygon": outer_polygon,
+            "usablePolygon": usable_polygon,
+
+            "source": "ai",
+            "reviewStatus": "unreviewed",
+            "isUserEdited": False,
+
+            "automaticAssessment": {
+                "valid": automatic_valid,
+                "requiresReview": not automatic_valid,
+                "method": "hybrid",
+
+                "candidateSource": str(
+                    getattr(
+                        boundary_result,
+                        "candidate_source",
+                        "unknown"
+                    )
+                ),
+
+                "message": str(
+                    getattr(
+                        boundary_result,
+                        "message",
+                        ""
+                    )
+                ),
+
+                "roomAreaCoverage": float(
+                    getattr(
+                        boundary_result,
+                        "room_area_coverage",
+                        0.0
+                    )
+                ),
+
+                "roomCentroidCoverage": float(
+                    getattr(
+                        boundary_result,
+                        "room_centroid_coverage",
+                        0.0
+                    )
+                ),
+
+                "wallSupport": float(
+                    getattr(
+                        boundary_result,
+                        "wall_support",
+                        0.0
+                    )
+                ),
+
+                "selectedStructuralGapPixels": int(
+                    getattr(
+                        boundary_result,
+                        "selected_structural_gap_px",
+                        0
+                    )
+                ),
+
+                "estimatedWallThicknessPixels": float(
+                    getattr(
+                        boundary_result,
+                        "estimated_wall_thickness_px",
+                        0.0
+                    )
+                )
+            }
+        }
 
     # ---------------------------------------------------------
     # Convert detection objects into structured data
@@ -364,7 +509,38 @@ class DetectionPipeline:
                 pass
 
         # -----------------------------------------------------
-        # 4. Detect extra openings
+        # 4. Detect building boundary
+        # -----------------------------------------------------
+        #
+        # Boundary failure is intentionally NON-FATAL.
+        #
+        # The floor plan, rooms, doors and windows are still valuable even
+        # when the boundary is uncertain. In that case we return a stable
+        # buildingBoundary object with automaticAssessment.valid=False so the
+        # frontend can show it for review/manual editing.
+        # -----------------------------------------------------
+
+        try:
+            boundary_result = self.boundary_detector.detect(
+                rooms=rooms,
+                image_shape=original_img.shape,
+                thick_wall_mask=wall_mask,
+                doors=doors,
+                windows=windows,
+                mode="ai"
+            )
+
+            boundary_data = self._boundary_to_data(
+                boundary_result
+            )
+
+        except Exception as boundary_error:
+            boundary_data = self._empty_boundary_data(
+                f"Boundary detection failed: {boundary_error}"
+            )
+
+        # -----------------------------------------------------
+        # 5. Detect extra openings
         # -----------------------------------------------------
 
         openings, img_print = opening_detect(
@@ -386,7 +562,7 @@ class DetectionPipeline:
         openings = openings or []
 
         # -----------------------------------------------------
-        # 5. Create FloorPlan
+        # 6. Create FloorPlan
         # -----------------------------------------------------
 
         floor_plan = FloorPlan(
@@ -397,7 +573,7 @@ class DetectionPipeline:
         )
 
         # -----------------------------------------------------
-        # 6. Convert Python objects to structured data
+        # 7. Convert Python objects to structured data
         # -----------------------------------------------------
 
         result = {
@@ -429,7 +605,14 @@ class DetectionPipeline:
 
             "windows": self._windows_to_data(windows),
 
-            "openings": self._openings_to_data(openings)
+            "openings": self._openings_to_data(openings),
+
+            # Canonical structured building geometry.
+            #
+            # This is part of the floor-plan JSON, not just visualization.
+            # It must be persisted with every revision because later analysis
+            # and optimization depend on it.
+            "buildingBoundary": boundary_data
         }
 
         return result, img_print
