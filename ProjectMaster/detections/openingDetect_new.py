@@ -75,7 +75,7 @@ class opening_detect:
         if hasattr(item, "bounds") and hasattr(item, "intersects"):
             return item
 
-        # Door/opening object, depending on your config class name
+        # Door/opening object
         for attr in ["door_poly", "doorPoly", "openingPoly", "poly", "roomPoly"]:
             if hasattr(item, attr):
                 return getattr(item, attr)

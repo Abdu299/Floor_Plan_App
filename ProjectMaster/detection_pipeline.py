@@ -192,10 +192,16 @@ class DetectionPipeline:
                     "name": door.room1.text
                 },
 
-                "room2": {
-                    "id": int(door.room2.id),
-                    "name": door.room2.text
-                },
+                # room2 can be None for an exterior door.
+                # In the JSON response, Python None becomes JSON null.
+                "room2": (
+                    {
+                        "id": int(door.room2.id),
+                        "name": door.room2.text
+                    }
+                    if door.room2 is not None
+                    else None
+                ),
 
                 "confidence": getattr(door, "confidence", None)
             })

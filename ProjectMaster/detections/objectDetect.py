@@ -43,14 +43,26 @@ class object_detect:
         distances.sort(key=lambda x: x[0])
 
         if label == "Door":
-            if len(distances) < 2:
+            # No detected rooms are available.
+            if len(distances) == 0:
                 return None, None, None
- 
+
+            # Keep the closest room exactly as before.
             distA, roomA = distances[0]
+
+            # A door may now connect to one room only.
+            # We do not call it an exterior door yet; that will be
+            # decided later using the detected building boundary.
+            if len(distances) == 1:
+                return roomA, None, door_poly
+
             distB, roomB = distances[1]
 
+            # Preserve the existing distance rule for the second room.
+            # If the second room is too far away, keep the door with
+            # only its closest room instead of discarding the door.
             if distB > max_room_distance:
-                return roomA, None, None
+                return roomA, None, door_poly
 
             return roomA, roomB, door_poly
 
@@ -109,12 +121,9 @@ class object_detect:
                 # find connected rooms
                 roomA, roomB, door_poly = self.find_connected_rooms(door_poly,max_room_distance, self.label)
 
-                if roomA is None and roomB is None:
-                    continue
-
-                
-
-                if roomA is None or roomB is None:
+                # A detected door must connect to at least one room.
+                # roomB may be None for a possible exterior door.
+                if roomA is None:
                     continue
 
                 door_id+=1
@@ -156,7 +165,7 @@ if __name__ == "__main__":
     name="images/floor-plani.jpg"
     listRooms, img=imageToRooms().returnRoom(name)
 
-    obDet1 = object_detect("Window",img,0.2, listRooms)
+    obDet1 = object_detect("Window",img,0.1, listRooms)
     
 
     boxene, img= obDet1.detect()
@@ -167,10 +176,16 @@ if __name__ == "__main__":
     
     if boxene:
         for box in boxene:
-            print("Door connects room", box.room1.text, "and room", box.room2.text)
-
-
-
-    
-
-    
+            if box.room2 is None:
+                print(
+                    "Door connects room",
+                    box.room1.text,
+                    "and no second room (possible exterior door)"
+                )
+            else:
+                print(
+                    "Door connects room",
+                    box.room1.text,
+                    "and room",
+                    box.room2.text
+                )
