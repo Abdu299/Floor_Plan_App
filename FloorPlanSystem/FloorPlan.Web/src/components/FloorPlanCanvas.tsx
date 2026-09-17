@@ -26,6 +26,10 @@ import {
   getImageUrl,
 } from "../api";
 
+import {
+  polygonInsidePolygon,
+} from "../geometry";
+
 
 export type ElementType =
   | "room"
@@ -43,6 +47,16 @@ interface FloorPlanCanvasProps {
   addMode: ElementType | null;
 
   boundaryEditMode: BoundaryKind | null;
+
+  boundaryDrawMode: BoundaryKind | null;
+
+  boundaryDraftPoints: PixelPoint[];
+
+  roomEditModeId: number | null;
+
+  roomDrawModeId: number | null;
+
+  roomDraftPoints: PixelPoint[];
 
   onSelect: (
     type: ElementType | null,
@@ -76,6 +90,31 @@ interface FloorPlanCanvasProps {
   onDeleteBoundaryPoint: (
     kind: BoundaryKind,
     pointIndex: number
+  ) => void;
+
+  onAddBoundaryDraftPoint: (
+    point: PixelPoint
+  ) => void;
+
+  onMoveRoomPoint: (
+    roomId: number,
+    pointIndex: number,
+    point: PixelPoint
+  ) => void;
+
+  onInsertRoomPoint: (
+    roomId: number,
+    insertAfterIndex: number,
+    point: PixelPoint
+  ) => void;
+
+  onDeleteRoomPoint: (
+    roomId: number,
+    pointIndex: number
+  ) => void;
+
+  onAddRoomDraftPoint: (
+    point: PixelPoint
   ) => void;
 }
 
@@ -175,12 +214,22 @@ function FloorPlanCanvas({
   selectedId,
   addMode,
   boundaryEditMode,
+  boundaryDrawMode,
+  boundaryDraftPoints,
+  roomEditModeId,
+  roomDrawModeId,
+  roomDraftPoints,
   onSelect,
   onMoveElement,
   onCreateElement,
   onMoveBoundaryPoint,
   onInsertBoundaryPoint,
   onDeleteBoundaryPoint,
+  onAddBoundaryDraftPoint,
+  onMoveRoomPoint,
+  onInsertRoomPoint,
+  onDeleteRoomPoint,
+  onAddRoomDraftPoint,
 }: FloorPlanCanvasProps) {
   const containerRef =
     useRef<HTMLDivElement | null>(
@@ -201,6 +250,24 @@ function FloorPlanCanvas({
     );
 
   const [drawingCurrent, setDrawingCurrent] =
+    useState<PixelPoint | null>(
+      null
+    );
+
+
+  const [
+    boundaryHoverPoint,
+    setBoundaryHoverPoint,
+  ] =
+    useState<PixelPoint | null>(
+      null
+    );
+
+
+  const [
+    roomHoverPoint,
+    setRoomHoverPoint,
+  ] =
     useState<PixelPoint | null>(
       null
     );
@@ -261,6 +328,20 @@ function FloorPlanCanvas({
     setDrawingCurrent(null);
   }, [
     addMode,
+  ]);
+
+
+  useEffect(() => {
+    setBoundaryHoverPoint(null);
+  }, [
+    boundaryDrawMode,
+  ]);
+
+
+  useEffect(() => {
+    setRoomHoverPoint(null);
+  }, [
+    roomDrawModeId,
   ]);
 
 
@@ -544,6 +625,76 @@ function FloorPlanCanvas({
     boundary?.reviewStatus !== "confirmed";
 
 
+  const boundaryDrawColor =
+    boundaryDrawMode === "outer"
+      ? "#d946ef"
+      : "#0891b2";
+
+
+  function addBoundaryDraftPointFromStage(
+    stage: Konva.Stage
+  ) {
+    if (!boundaryDrawMode) {
+      return;
+    }
+
+    const point =
+      getOriginalPointer(stage);
+
+    if (!point) {
+      return;
+    }
+
+    onAddBoundaryDraftPoint(point);
+  }
+
+
+  function updateBoundaryHoverFromStage(
+    stage: Konva.Stage
+  ) {
+    if (!boundaryDrawMode) {
+      return;
+    }
+
+    const point =
+      getOriginalPointer(stage);
+
+    setBoundaryHoverPoint(point);
+  }
+
+
+  function addRoomDraftPointFromStage(
+    stage: Konva.Stage
+  ) {
+    if (roomDrawModeId === null) {
+      return;
+    }
+
+    const point =
+      getOriginalPointer(stage);
+
+    if (!point) {
+      return;
+    }
+
+    onAddRoomDraftPoint(point);
+  }
+
+
+  function updateRoomHoverFromStage(
+    stage: Konva.Stage
+  ) {
+    if (roomDrawModeId === null) {
+      return;
+    }
+
+    const point =
+      getOriginalPointer(stage);
+
+    setRoomHoverPoint(point);
+  }
+
+
   function renderBoundaryLine(
     kind: BoundaryKind,
     polygon: PixelPoint[],
@@ -554,7 +705,11 @@ function FloorPlanCanvas({
     }
 
     const editing =
-      boundaryEditMode === kind;
+      boundaryEditMode === kind &&
+      !boundaryDrawMode;
+
+    const beingRedrawn =
+      boundaryDrawMode === kind;
 
     return (
       <Line
@@ -576,9 +731,15 @@ function FloorPlanCanvas({
             : undefined
         }
         fill="rgba(0,0,0,0)"
+        opacity={
+          beingRedrawn
+            ? 0.35
+            : 1
+        }
         listening={
           editing &&
-          !addMode
+          !addMode &&
+          !boundaryDrawMode
         }
         onDblClick={event => {
           if (!editing) {
@@ -652,7 +813,8 @@ function FloorPlanCanvas({
   ) {
     if (
       boundaryEditMode !== kind ||
-      addMode
+      addMode ||
+      boundaryDrawMode
     ) {
       return null;
     }
@@ -710,17 +872,96 @@ function FloorPlanCanvas({
   }
 
 
+  function renderRoomHandles() {
+    if (
+      roomEditModeId === null ||
+      roomDrawModeId !== null ||
+      addMode ||
+      boundaryEditMode ||
+      boundaryDrawMode
+    ) {
+      return null;
+    }
+
+    const room =
+      floorPlan
+        .revision
+        .rooms
+        .find(
+          current =>
+            current.id === roomEditModeId
+        );
+
+    if (!room) {
+      return null;
+    }
+
+    return room.polygon.map(
+      (point, pointIndex) => (
+        <Circle
+          key={`room-edit-${room.id}-point-${pointIndex}`}
+          x={point.x}
+          y={point.y}
+          radius={boundaryHandleRadius}
+          fill="#ffffff"
+          stroke="#15803d"
+          strokeWidth={3 / scale}
+          draggable
+          onDragEnd={event => {
+            const next = clampPoint({
+              x: event.currentTarget.x(),
+              y: event.currentTarget.y(),
+            });
+
+            onMoveRoomPoint(
+              room.id,
+              pointIndex,
+              next
+            );
+          }}
+          onDblClick={event => {
+            event.cancelBubble = true;
+
+            if (room.polygon.length <= 3) {
+              return;
+            }
+
+            onDeleteRoomPoint(
+              room.id,
+              pointIndex
+            );
+          }}
+          onDblTap={event => {
+            event.cancelBubble = true;
+
+            if (room.polygon.length <= 3) {
+              return;
+            }
+
+            onDeleteRoomPoint(
+              room.id,
+              pointIndex
+            );
+          }}
+        />
+      )
+    );
+  }
+
+
   return (
     <div
       ref={containerRef}
       className="floor-plan-stage-container"
       style={{
         cursor:
-          addMode
+          addMode ||
+          boundaryEditMode ||
+          boundaryDrawMode ||
+          roomEditModeId !== null ||
+          roomDrawModeId !== null
             ? "crosshair"
-            : boundaryEditMode
-              ? "crosshair"
-              : "default",
+            : "default",
       }}
     >
       <Stage
@@ -731,6 +972,20 @@ function FloorPlanCanvas({
             event.target.getStage();
 
           if (!stage) {
+            return;
+          }
+
+          if (boundaryDrawMode) {
+            addBoundaryDraftPointFromStage(
+              stage
+            );
+            return;
+          }
+
+          if (roomDrawModeId !== null) {
+            addRoomDraftPointFromStage(
+              stage
+            );
             return;
           }
 
@@ -746,10 +1001,6 @@ function FloorPlanCanvas({
           }
         }}
         onMouseMove={event => {
-          if (!addMode) {
-            return;
-          }
-
           const stage =
             event.target.getStage();
 
@@ -757,7 +1008,55 @@ function FloorPlanCanvas({
             return;
           }
 
+          if (boundaryDrawMode) {
+            updateBoundaryHoverFromStage(
+              stage
+            );
+            return;
+          }
+
+          if (roomDrawModeId !== null) {
+            updateRoomHoverFromStage(
+              stage
+            );
+            return;
+          }
+
+          if (!addMode) {
+            return;
+          }
+
           continueDrawing(stage);
+        }}
+        onMouseLeave={() => {
+          if (boundaryDrawMode) {
+            setBoundaryHoverPoint(null);
+          }
+
+          if (roomDrawModeId !== null) {
+            setRoomHoverPoint(null);
+          }
+        }}
+        onTouchStart={event => {
+          const stage =
+            event.target.getStage();
+
+          if (!stage) {
+            return;
+          }
+
+          if (boundaryDrawMode) {
+            addBoundaryDraftPointFromStage(
+              stage
+            );
+            return;
+          }
+
+          if (roomDrawModeId !== null) {
+            addRoomDraftPointFromStage(
+              stage
+            );
+          }
         }}
         onMouseUp={event => {
           if (!addMode) {
@@ -799,10 +1098,215 @@ function FloorPlanCanvas({
           )}
 
 
+          {/* Manual draw / redraw preview.
+              Existing JSON geometry is not changed until the user presses Finish. */}
+          {
+            boundaryDrawMode &&
+            boundaryDraftPoints.length > 0 && (
+              <>
+                <Line
+                  points={
+                    polygonToPoints(
+                      boundaryDraftPoints
+                    )
+                  }
+                  closed={
+                    boundaryDraftPoints.length >= 3
+                  }
+                  stroke={boundaryDrawColor}
+                  strokeWidth={
+                    selectedBoundaryStroke
+                  }
+                  dash={[
+                    12 / scale,
+                    7 / scale,
+                  ]}
+                  fill={
+                    boundaryDraftPoints.length >= 3
+                      ? "rgba(255,255,255,0.14)"
+                      : "rgba(0,0,0,0)"
+                  }
+                  listening={false}
+                />
+
+                {
+                  boundaryHoverPoint &&
+                  boundaryDraftPoints.length > 0 && (
+                    <Line
+                      points={[
+                        boundaryDraftPoints[
+                          boundaryDraftPoints.length - 1
+                        ].x,
+                        boundaryDraftPoints[
+                          boundaryDraftPoints.length - 1
+                        ].y,
+                        boundaryHoverPoint.x,
+                        boundaryHoverPoint.y,
+                      ]}
+                      stroke={boundaryDrawColor}
+                      strokeWidth={
+                        3 / scale
+                      }
+                      dash={[
+                        8 / scale,
+                        6 / scale,
+                      ]}
+                      listening={false}
+                    />
+                  )
+                }
+
+                {
+                  boundaryDraftPoints.map(
+                    (
+                      point,
+                      index
+                    ) => (
+                      <Circle
+                        key={
+                          `boundary-draft-${index}`
+                        }
+                        x={point.x}
+                        y={point.y}
+                        radius={
+                          index === 0
+                            ? 10 / scale
+                            : 7 / scale
+                        }
+                        fill={
+                          index === 0
+                            ? boundaryDrawColor
+                            : "#ffffff"
+                        }
+                        stroke={
+                          boundaryDrawColor
+                        }
+                        strokeWidth={
+                          3 / scale
+                        }
+                        listening={false}
+                      />
+                    )
+                  )
+                }
+              </>
+            )
+          }
+
+
+          {/* Room redraw preview. The saved room polygon stays unchanged
+              until the user presses Finish in the editor. */}
+          {
+            roomDrawModeId !== null &&
+            roomDraftPoints.length > 0 && (
+              <>
+                <Line
+                  points={
+                    polygonToPoints(
+                      roomDraftPoints
+                    )
+                  }
+                  closed={
+                    roomDraftPoints.length >= 3
+                  }
+                  stroke="#15803d"
+                  strokeWidth={
+                    selectedRoomStroke
+                  }
+                  dash={[
+                    12 / scale,
+                    7 / scale,
+                  ]}
+                  fill={
+                    roomDraftPoints.length >= 3
+                      ? "rgba(22,163,74,0.18)"
+                      : "rgba(0,0,0,0)"
+                  }
+                  listening={false}
+                />
+
+                {
+                  roomHoverPoint &&
+                  roomDraftPoints.length > 0 && (
+                    <Line
+                      points={[
+                        roomDraftPoints[
+                          roomDraftPoints.length - 1
+                        ].x,
+                        roomDraftPoints[
+                          roomDraftPoints.length - 1
+                        ].y,
+                        roomHoverPoint.x,
+                        roomHoverPoint.y,
+                      ]}
+                      stroke="#15803d"
+                      strokeWidth={3 / scale}
+                      dash={[
+                        8 / scale,
+                        6 / scale,
+                      ]}
+                      listening={false}
+                    />
+                  )
+                }
+
+                {
+                  roomDraftPoints.map(
+                    (
+                      point,
+                      index
+                    ) => (
+                      <Circle
+                        key={`room-draft-${index}`}
+                        x={point.x}
+                        y={point.y}
+                        radius={
+                          index === 0
+                            ? 10 / scale
+                            : 7 / scale
+                        }
+                        fill={
+                          index === 0
+                            ? "#15803d"
+                            : "#ffffff"
+                        }
+                        stroke="#15803d"
+                        strokeWidth={3 / scale}
+                        listening={false}
+                      />
+                    )
+                  )
+                }
+              </>
+            )
+          }
+
+
           {floorPlan.revision.rooms.map(room => {
             const selected =
               selectedType === "room" &&
               selectedId === room.id;
+
+            const editing =
+              roomEditModeId === room.id &&
+              roomDrawModeId === null;
+
+            const outsideUsableBoundary =
+              usablePolygon.length >= 3 &&
+              !polygonInsidePolygon(
+                room.polygon,
+                usablePolygon
+              );
+
+            const roomListening =
+              !addMode &&
+              !boundaryEditMode &&
+              !boundaryDrawMode &&
+              roomDrawModeId === null &&
+              (
+                roomEditModeId === null ||
+                editing
+              );
 
             const labelWidth =
               200 / scale;
@@ -811,13 +1315,15 @@ function FloorPlanCanvas({
               <Group
                 key={`room-${room.id}`}
                 listening={
-                  !addMode &&
-                  !boundaryEditMode
+                  roomListening
                 }
                 draggable={
                   selected &&
+                  roomEditModeId === null &&
+                  roomDrawModeId === null &&
                   !addMode &&
-                  !boundaryEditMode
+                  !boundaryEditMode &&
+                  !boundaryDrawMode
                 }
                 onClick={event => {
                   event.cancelBubble = true;
@@ -843,9 +1349,11 @@ function FloorPlanCanvas({
                   }
                   closed
                   stroke={
-                    selected
-                      ? "#15803d"
-                      : "#16a34a"
+                    outsideUsableBoundary
+                      ? "#dc2626"
+                      : selected
+                        ? "#15803d"
+                        : "#16a34a"
                   }
                   strokeWidth={
                     selected
@@ -853,10 +1361,80 @@ function FloorPlanCanvas({
                       : roomStroke
                   }
                   fill={
-                    selected
-                      ? "rgba(22, 163, 74, 0.22)"
-                      : "rgba(22, 163, 74, 0.10)"
+                    outsideUsableBoundary
+                      ? "rgba(220, 38, 38, 0.16)"
+                      : selected
+                        ? "rgba(22, 163, 74, 0.22)"
+                        : "rgba(22, 163, 74, 0.10)"
                   }
+                  dash={
+                    outsideUsableBoundary
+                      ? [
+                          10 / scale,
+                          6 / scale,
+                        ]
+                      : undefined
+                  }
+                  onDblClick={event => {
+                    if (!editing) {
+                      return;
+                    }
+
+                    event.cancelBubble = true;
+
+                    const stage =
+                      event.currentTarget.getStage();
+
+                    if (!stage) {
+                      return;
+                    }
+
+                    const point =
+                      getOriginalPointer(stage);
+
+                    if (!point) {
+                      return;
+                    }
+
+                    onInsertRoomPoint(
+                      room.id,
+                      closestSegmentIndex(
+                        room.polygon,
+                        point
+                      ),
+                      point
+                    );
+                  }}
+                  onDblTap={event => {
+                    if (!editing) {
+                      return;
+                    }
+
+                    event.cancelBubble = true;
+
+                    const stage =
+                      event.currentTarget.getStage();
+
+                    if (!stage) {
+                      return;
+                    }
+
+                    const point =
+                      getOriginalPointer(stage);
+
+                    if (!point) {
+                      return;
+                    }
+
+                    onInsertRoomPoint(
+                      room.id,
+                      closestSegmentIndex(
+                        room.polygon,
+                        point
+                      ),
+                      point
+                    );
+                  }}
                 />
 
                 <Text
@@ -891,12 +1469,18 @@ function FloorPlanCanvas({
                 key={`door-${door.id}`}
                 listening={
                   !addMode &&
-                  !boundaryEditMode
+                  !boundaryEditMode &&
+                  !boundaryDrawMode &&
+                  roomEditModeId === null &&
+                  roomDrawModeId === null
                 }
                 draggable={
                   selected &&
                   !addMode &&
-                  !boundaryEditMode
+                  !boundaryEditMode &&
+                  !boundaryDrawMode &&
+                  roomEditModeId === null &&
+                  roomDrawModeId === null
                 }
                 onClick={event => {
                   event.cancelBubble = true;
@@ -952,12 +1536,18 @@ function FloorPlanCanvas({
                 key={`window-${window.id}`}
                 listening={
                   !addMode &&
-                  !boundaryEditMode
+                  !boundaryEditMode &&
+                  !boundaryDrawMode &&
+                  roomEditModeId === null &&
+                  roomDrawModeId === null
                 }
                 draggable={
                   selected &&
                   !addMode &&
-                  !boundaryEditMode
+                  !boundaryEditMode &&
+                  !boundaryDrawMode &&
+                  roomEditModeId === null &&
+                  roomDrawModeId === null
                 }
                 onClick={event => {
                   event.cancelBubble = true;
@@ -1013,12 +1603,18 @@ function FloorPlanCanvas({
                 key={`opening-${opening.id}`}
                 listening={
                   !addMode &&
-                  !boundaryEditMode
+                  !boundaryEditMode &&
+                  !boundaryDrawMode &&
+                  roomEditModeId === null &&
+                  roomDrawModeId === null
                 }
                 draggable={
                   selected &&
                   !addMode &&
-                  !boundaryEditMode
+                  !boundaryEditMode &&
+                  !boundaryDrawMode &&
+                  roomEditModeId === null &&
+                  roomDrawModeId === null
                 }
                 onClick={event => {
                   event.cancelBubble = true;
@@ -1096,6 +1692,8 @@ function FloorPlanCanvas({
             usablePolygon,
             "#0891b2"
           )}
+
+          {renderRoomHandles()}
         </Layer>
       </Stage>
     </div>

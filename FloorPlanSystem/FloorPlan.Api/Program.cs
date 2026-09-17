@@ -206,7 +206,7 @@ builder.Services.AddHttpClient<
 
         client.Timeout =
             TimeSpan.FromMinutes(
-                5
+                10
             );
     }
 );

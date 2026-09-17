@@ -117,6 +117,14 @@ public class FloorPlanRevisionService
         );
 
 
+        // Recalculate room geometry from the polygons before validating or
+        // saving. This guarantees that centroid/areaPixels in the database
+        // always match the actual room polygon sent by the editor.
+        NormalizeRoomGeometry(
+            request.Rooms
+        );
+
+
         // =====================================================
         // BASIC STRUCTURAL VALIDATION
         // =====================================================
@@ -894,6 +902,69 @@ public class FloorPlanRevisionService
                 "outer and usable polygons."
             );
         }
+
+
+        var hasOuterBoundary =
+            request.BuildingBoundary
+                .OuterPolygon
+                .Count >= 3;
+
+        var hasUsableBoundary =
+            request.BuildingBoundary
+                .UsablePolygon
+                .Count >= 3;
+
+
+        if (
+            hasOuterBoundary !=
+            hasUsableBoundary
+        )
+        {
+            throw new InvalidOperationException(
+                "The building boundary must contain both an outer " +
+                "polygon and a usable polygon."
+            );
+        }
+
+
+        if (
+            hasOuterBoundary &&
+            hasUsableBoundary
+        )
+        {
+            if (
+                !PolygonInsidePolygon(
+                    request.BuildingBoundary.UsablePolygon,
+                    request.BuildingBoundary.OuterPolygon
+                )
+            )
+            {
+                throw new InvalidOperationException(
+                    "The usable building boundary must stay inside " +
+                    "the outer building boundary."
+                );
+            }
+
+
+            foreach (
+                var room
+                in request.Rooms
+            )
+            {
+                if (
+                    !PolygonInsidePolygon(
+                        room.Polygon,
+                        request.BuildingBoundary.UsablePolygon
+                    )
+                )
+                {
+                    throw new InvalidOperationException(
+                        $"Room {room.Id} – {room.Name} must stay " +
+                        "inside the usable building boundary."
+                    );
+                }
+            }
+        }
     }
 
 
@@ -1083,6 +1154,800 @@ public class FloorPlanRevisionService
 
 
     // =========================================================
+    // ROOM GEOMETRY NORMALIZATION
+    // =========================================================
+
+    private static void NormalizeRoomGeometry(
+        IEnumerable<RoomDetection> rooms)
+    {
+        foreach (
+            var room
+            in rooms
+        )
+        {
+            if (
+                room.Polygon.Count < 3
+            )
+            {
+                continue;
+            }
+
+
+            room.AreaPixels =
+                Math.Abs(
+                    PolygonSignedArea(
+                        room.Polygon
+                    )
+                );
+
+
+            room.Centroid =
+                PolygonCentroid(
+                    room.Polygon
+                );
+        }
+    }
+
+
+    private static double PolygonSignedArea(
+        IReadOnlyList<PixelPoint> polygon)
+    {
+        if (
+            polygon.Count < 3
+        )
+        {
+            return 0;
+        }
+
+
+        double twiceArea = 0;
+
+
+        for (
+            var index = 0;
+            index < polygon.Count;
+            index++
+        )
+        {
+            var next =
+                (index + 1) %
+                polygon.Count;
+
+
+            twiceArea +=
+                polygon[index].X *
+                polygon[next].Y
+                -
+                polygon[next].X *
+                polygon[index].Y;
+        }
+
+
+        return twiceArea / 2.0;
+    }
+
+
+    private static PixelPoint PolygonCentroid(
+        IReadOnlyList<PixelPoint> polygon)
+    {
+        const double tolerance =
+            0.0000001;
+
+
+        var signedArea =
+            PolygonSignedArea(
+                polygon
+            );
+
+
+        if (
+            Math.Abs(signedArea) <=
+            tolerance
+        )
+        {
+            return new PixelPoint
+            {
+                X =
+                    polygon.Average(
+                        point => point.X
+                    ),
+
+                Y =
+                    polygon.Average(
+                        point => point.Y
+                    )
+            };
+        }
+
+
+        double x = 0;
+        double y = 0;
+
+
+        for (
+            var index = 0;
+            index < polygon.Count;
+            index++
+        )
+        {
+            var next =
+                (index + 1) %
+                polygon.Count;
+
+
+            var factor =
+                polygon[index].X *
+                polygon[next].Y
+                -
+                polygon[next].X *
+                polygon[index].Y;
+
+
+            x +=
+                (
+                    polygon[index].X +
+                    polygon[next].X
+                )
+                * factor;
+
+
+            y +=
+                (
+                    polygon[index].Y +
+                    polygon[next].Y
+                )
+                * factor;
+        }
+
+
+        var divisor =
+            6.0 * signedArea;
+
+
+        return new PixelPoint
+        {
+            X = x / divisor,
+            Y = y / divisor
+        };
+    }
+
+
+    // =========================================================
+    // POLYGON CONTAINMENT
+    // =========================================================
+    //
+    // Checking only the vertices is not enough when outer is concave.
+    // An edge can connect two inside vertices while crossing outside.
+    // We therefore split every inner edge at every outer-boundary
+    // intersection and test the midpoint of every resulting segment.
+    // =========================================================
+
+    private static bool PolygonInsidePolygon(
+        IReadOnlyList<PixelPoint> inner,
+        IReadOnlyList<PixelPoint> outer)
+    {
+        const double tolerance =
+            0.0000001;
+
+
+        if (
+            inner.Count < 3
+            ||
+            outer.Count < 3
+        )
+        {
+            return false;
+        }
+
+
+        foreach (
+            var point
+            in inner
+        )
+        {
+            if (
+                !PointInPolygonInclusive(
+                    point,
+                    outer
+                )
+            )
+            {
+                return false;
+            }
+        }
+
+
+        for (
+            var innerIndex = 0;
+            innerIndex < inner.Count;
+            innerIndex++
+        )
+        {
+            var innerNext =
+                (innerIndex + 1) %
+                inner.Count;
+
+
+            var start =
+                inner[innerIndex];
+
+            var end =
+                inner[innerNext];
+
+
+            var splits =
+                new List<double>
+                {
+                    0,
+                    1
+                };
+
+
+            for (
+                var outerIndex = 0;
+                outerIndex < outer.Count;
+                outerIndex++
+            )
+            {
+                var outerNext =
+                    (outerIndex + 1) %
+                    outer.Count;
+
+
+                AddSegmentIntersectionParameters(
+                    start,
+                    end,
+                    outer[outerIndex],
+                    outer[outerNext],
+                    splits
+                );
+            }
+
+
+            splits =
+                splits
+                    .OrderBy(
+                        value => value
+                    )
+                    .Aggregate(
+                        new List<double>(),
+                        (
+                            unique,
+                            value
+                        ) =>
+                        {
+                            if (
+                                unique.Count == 0
+                                ||
+                                Math.Abs(
+                                    unique[^1] -
+                                    value
+                                ) > tolerance
+                            )
+                            {
+                                unique.Add(
+                                    value
+                                );
+                            }
+
+
+                            return unique;
+                        }
+                    );
+
+
+            for (
+                var splitIndex = 0;
+                splitIndex < splits.Count - 1;
+                splitIndex++
+            )
+            {
+                var first =
+                    splits[splitIndex];
+
+                var second =
+                    splits[splitIndex + 1];
+
+
+                if (
+                    second - first <=
+                    tolerance
+                )
+                {
+                    continue;
+                }
+
+
+                var t =
+                    (
+                        first +
+                        second
+                    ) / 2.0;
+
+
+                var midpoint =
+                    new PixelPoint
+                    {
+                        X =
+                            start.X +
+                            (
+                                end.X -
+                                start.X
+                            ) * t,
+
+                        Y =
+                            start.Y +
+                            (
+                                end.Y -
+                                start.Y
+                            ) * t
+                    };
+
+
+                if (
+                    !PointInPolygonInclusive(
+                        midpoint,
+                        outer
+                    )
+                )
+                {
+                    return false;
+                }
+            }
+        }
+
+
+        return true;
+    }
+
+
+    private static bool PointInPolygonInclusive(
+        PixelPoint point,
+        IReadOnlyList<PixelPoint> polygon)
+    {
+        if (
+            polygon.Count < 3
+        )
+        {
+            return false;
+        }
+
+
+        for (
+            var index = 0;
+            index < polygon.Count;
+            index++
+        )
+        {
+            var next =
+                (index + 1) %
+                polygon.Count;
+
+
+            if (
+                PointOnSegment(
+                    point,
+                    polygon[index],
+                    polygon[next]
+                )
+            )
+            {
+                return true;
+            }
+        }
+
+
+        var inside =
+            false;
+
+
+        for (
+            int index = 0,
+            previous = polygon.Count - 1;
+            index < polygon.Count;
+            previous = index++
+        )
+        {
+            var currentPoint =
+                polygon[index];
+
+            var previousPoint =
+                polygon[previous];
+
+
+            var crossesRay =
+                (
+                    currentPoint.Y >
+                    point.Y
+                )
+                !=
+                (
+                    previousPoint.Y >
+                    point.Y
+                );
+
+
+            if (!crossesRay)
+            {
+                continue;
+            }
+
+
+            var xAtY =
+                (
+                    (
+                        previousPoint.X -
+                        currentPoint.X
+                    )
+                    *
+                    (
+                        point.Y -
+                        currentPoint.Y
+                    )
+                )
+                /
+                (
+                    previousPoint.Y -
+                    currentPoint.Y
+                )
+                +
+                currentPoint.X;
+
+
+            if (
+                point.X <
+                xAtY
+            )
+            {
+                inside =
+                    !inside;
+            }
+        }
+
+
+        return inside;
+    }
+
+
+    private static bool PointOnSegment(
+        PixelPoint point,
+        PixelPoint start,
+        PixelPoint end)
+    {
+        const double tolerance =
+            0.0001;
+
+
+        var dx =
+            end.X -
+            start.X;
+
+        var dy =
+            end.Y -
+            start.Y;
+
+        var px =
+            point.X -
+            start.X;
+
+        var py =
+            point.Y -
+            start.Y;
+
+
+        var area =
+            Math.Abs(
+                Cross(
+                    dx,
+                    dy,
+                    px,
+                    py
+                )
+            );
+
+
+        var scale =
+            Math.Max(
+                1.0,
+                Math.Sqrt(
+                    dx * dx +
+                    dy * dy
+                )
+            );
+
+
+        if (
+            area >
+            tolerance * scale
+        )
+        {
+            return false;
+        }
+
+
+        var dot =
+            (
+                point.X -
+                start.X
+            )
+            *
+            (
+                point.X -
+                end.X
+            )
+            +
+            (
+                point.Y -
+                start.Y
+            )
+            *
+            (
+                point.Y -
+                end.Y
+            );
+
+
+        return dot <=
+            tolerance *
+            tolerance;
+    }
+
+
+    private static void AddSegmentIntersectionParameters(
+        PixelPoint firstStart,
+        PixelPoint firstEnd,
+        PixelPoint secondStart,
+        PixelPoint secondEnd,
+        List<double> firstSplits)
+    {
+        const double tolerance =
+            0.0000001;
+
+
+        var rx =
+            firstEnd.X -
+            firstStart.X;
+
+        var ry =
+            firstEnd.Y -
+            firstStart.Y;
+
+        var sx =
+            secondEnd.X -
+            secondStart.X;
+
+        var sy =
+            secondEnd.Y -
+            secondStart.Y;
+
+
+        var qpx =
+            secondStart.X -
+            firstStart.X;
+
+        var qpy =
+            secondStart.Y -
+            firstStart.Y;
+
+
+        var denominator =
+            Cross(
+                rx,
+                ry,
+                sx,
+                sy
+            );
+
+
+        var qpr =
+            Cross(
+                qpx,
+                qpy,
+                rx,
+                ry
+            );
+
+
+        if (
+            Math.Abs(denominator) >
+            tolerance
+        )
+        {
+            var t =
+                Cross(
+                    qpx,
+                    qpy,
+                    sx,
+                    sy
+                )
+                /
+                denominator;
+
+
+            var u =
+                Cross(
+                    qpx,
+                    qpy,
+                    rx,
+                    ry
+                )
+                /
+                denominator;
+
+
+            if (
+                t >= -tolerance
+                &&
+                t <= 1 + tolerance
+                &&
+                u >= -tolerance
+                &&
+                u <= 1 + tolerance
+            )
+            {
+                AddSplitValue(
+                    firstSplits,
+                    t
+                );
+            }
+
+
+            return;
+        }
+
+
+        if (
+            Math.Abs(qpr) >
+            tolerance
+        )
+        {
+            return;
+        }
+
+
+        // Collinear boundaries: split at overlapping endpoints.
+        if (
+            PointOnSegment(
+                secondStart,
+                firstStart,
+                firstEnd
+            )
+        )
+        {
+            AddSplitValue(
+                firstSplits,
+                ParameterOnSegment(
+                    secondStart,
+                    firstStart,
+                    firstEnd
+                )
+            );
+        }
+
+
+        if (
+            PointOnSegment(
+                secondEnd,
+                firstStart,
+                firstEnd
+            )
+        )
+        {
+            AddSplitValue(
+                firstSplits,
+                ParameterOnSegment(
+                    secondEnd,
+                    firstStart,
+                    firstEnd
+                )
+            );
+        }
+    }
+
+
+    private static void AddSplitValue(
+        List<double> values,
+        double value)
+    {
+        const double tolerance =
+            0.0000001;
+
+
+        var clamped =
+            Math.Max(
+                0,
+                Math.Min(
+                    1,
+                    value
+                )
+            );
+
+
+        if (
+            !values.Any(
+                current =>
+                    Math.Abs(
+                        current -
+                        clamped
+                    ) <= tolerance
+            )
+        )
+        {
+            values.Add(
+                clamped
+            );
+        }
+    }
+
+
+    private static double ParameterOnSegment(
+        PixelPoint point,
+        PixelPoint start,
+        PixelPoint end)
+    {
+        const double tolerance =
+            0.0000001;
+
+
+        var dx =
+            end.X -
+            start.X;
+
+        var dy =
+            end.Y -
+            start.Y;
+
+
+        if (
+            Math.Abs(dx) >=
+            Math.Abs(dy)
+        )
+        {
+            if (
+                Math.Abs(dx) <=
+                tolerance
+            )
+            {
+                return 0;
+            }
+
+
+            return (
+                point.X -
+                start.X
+            ) / dx;
+        }
+
+
+        if (
+            Math.Abs(dy) <=
+            tolerance
+        )
+        {
+            return 0;
+        }
+
+
+        return (
+            point.Y -
+            start.Y
+        ) / dy;
+    }
+
+
+    private static double Cross(
+        double ax,
+        double ay,
+        double bx,
+        double by)
+    {
+        return
+            ax * by -
+            ay * bx;
+    }
+
+
+    // =========================================================
     // UNIQUE IDS
     // =========================================================
 
@@ -1162,6 +2027,20 @@ public class FloorPlanRevisionService
                     $"{elementName} contains coordinates outside the floor-plan image."
                 );
             }
+        }
+
+
+        if (
+            Math.Abs(
+                PolygonSignedArea(
+                    polygon
+                )
+            ) <= 0.000001
+        )
+        {
+            throw new InvalidOperationException(
+                $"{elementName} must have a positive polygon area."
+            );
         }
     }
 }

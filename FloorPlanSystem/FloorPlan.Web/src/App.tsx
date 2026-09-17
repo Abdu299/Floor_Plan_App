@@ -33,6 +33,16 @@ import FloorPlanCanvas, {
   type ElementType,
 } from "./components/FloorPlanCanvas";
 
+import {
+  clipPolygonToPolygon,
+  constrainRoomToUsableBoundary,
+  normalizePolygon,
+  polygonArea,
+  polygonCentroid,
+  polygonInsidePolygon,
+  roomWithPolygon,
+} from "./geometry";
+
 import SavedFloorPlansPage
   from "./pages/SavedFloorPlansPage";
 
@@ -173,6 +183,15 @@ interface SaveValidation {
     Room[];
 
   allRoomsHaveArea:
+    boolean;
+
+  roomsOutsideUsableBoundary:
+    Room[];
+
+  usableBoundaryInsideOuter:
+    boolean;
+
+  geometryValid:
     boolean;
 
   canSave:
@@ -438,6 +457,68 @@ function validateForSave(
 
 
   // =======================================================
+  // GEOMETRY VALIDATION
+  // =======================================================
+
+  const boundary =
+    floorPlan.revision.buildingBoundary;
+
+  const outerPolygon =
+    normalizePolygon(
+      boundary.outerPolygon
+    );
+
+  const usablePolygon =
+    normalizePolygon(
+      boundary.usablePolygon
+    );
+
+  const usableBoundaryInsideOuter =
+    outerPolygon.length < 3
+    ||
+    usablePolygon.length < 3
+    ||
+    polygonInsidePolygon(
+      usablePolygon,
+      outerPolygon
+    );
+
+  const roomsOutsideUsableBoundary =
+    usablePolygon.length >= 3
+      ? rooms.filter(
+          room =>
+            !polygonInsidePolygon(
+              room.polygon,
+              usablePolygon
+            )
+        )
+      : [];
+
+  const malformedBoundary =
+    (
+      outerPolygon.length > 0 &&
+      outerPolygon.length < 3
+    )
+    ||
+    (
+      usablePolygon.length > 0 &&
+      usablePolygon.length < 3
+    )
+    ||
+    (
+      (outerPolygon.length >= 3) !==
+      (usablePolygon.length >= 3)
+    );
+
+  const geometryValid =
+    !malformedBoundary
+    &&
+    usableBoundaryInsideOuter
+    &&
+    roomsOutsideUsableBoundary.length === 0;
+
+
+  // =======================================================
   // FLOOR PLAN VALIDITY
   //
   // REQUIREMENTS:
@@ -514,6 +595,36 @@ function validateForSave(
   }
 
 
+  if (malformedBoundary) {
+
+    issues.push(
+      "The building boundary must contain both a valid outer polygon and a valid usable polygon."
+    );
+
+  }
+
+
+  if (!usableBoundaryInsideOuter) {
+
+    issues.push(
+      "The usable boundary must stay inside the outer boundary."
+    );
+
+  }
+
+
+  for (
+    const room
+    of roomsOutsideUsableBoundary
+  ) {
+
+    issues.push(
+      `Room ${room.id} – ${room.name} is outside the usable building boundary.`
+    );
+
+  }
+
+
   // =======================================================
   // RESULT
   // =======================================================
@@ -537,10 +648,18 @@ function validateForSave(
 
     allRoomsHaveArea,
 
+    roomsOutsideUsableBoundary,
+
+    usableBoundaryInsideOuter,
+
+    geometryValid,
+
     canSave:
       floorPlanValid
       &&
-      allRoomsHaveArea,
+      allRoomsHaveArea
+      &&
+      geometryValid,
 
     issues,
   };
@@ -619,6 +738,51 @@ function AnalyzePage() {
   ] =
     useState<BoundaryKind | null>(
       null
+    );
+
+
+  const [
+    boundaryDrawMode,
+    setBoundaryDrawMode,
+  ] =
+    useState<BoundaryKind | null>(
+      null
+    );
+
+
+  const [
+    boundaryDraftPoints,
+    setBoundaryDraftPoints,
+  ] =
+    useState<PixelPoint[]>(
+      []
+    );
+
+
+  const [
+    roomEditModeId,
+    setRoomEditModeId,
+  ] =
+    useState<number | null>(
+      null
+    );
+
+
+  const [
+    roomDrawModeId,
+    setRoomDrawModeId,
+  ] =
+    useState<number | null>(
+      null
+    );
+
+
+  const [
+    roomDraftPoints,
+    setRoomDraftPoints,
+  ] =
+    useState<PixelPoint[]>(
+      []
     );
 
 
@@ -713,6 +877,31 @@ function AnalyzePage() {
           );
 
 
+          setBoundaryDrawMode(
+            null
+          );
+
+
+          setBoundaryDraftPoints(
+            []
+          );
+
+
+          setRoomEditModeId(
+            null
+          );
+
+
+          setRoomDrawModeId(
+            null
+          );
+
+
+          setRoomDraftPoints(
+            []
+          );
+
+
           return;
         }
 
@@ -792,6 +981,31 @@ function AnalyzePage() {
             null
           );
 
+
+          setBoundaryDrawMode(
+            null
+          );
+
+
+          setBoundaryDraftPoints(
+            []
+          );
+
+
+          setRoomEditModeId(
+            null
+          );
+
+
+          setRoomDrawModeId(
+            null
+          );
+
+
+          setRoomDraftPoints(
+            []
+          );
+
         }
         catch (err) {
 
@@ -856,6 +1070,30 @@ function AnalyzePage() {
       number | null
   ) {
 
+    if (
+      roomDrawModeId !== null &&
+      (
+        type !== "room" ||
+        id !== roomDrawModeId
+      )
+    ) {
+      return;
+    }
+
+
+    if (
+      roomEditModeId !== null &&
+      (
+        type !== "room" ||
+        id !== roomEditModeId
+      )
+    ) {
+      setRoomEditModeId(
+        null
+      );
+    }
+
+
     setSelectedType(
       type
     );
@@ -916,6 +1154,31 @@ function AnalyzePage() {
 
     setBoundaryEditMode(
       null
+    );
+
+
+    setBoundaryDrawMode(
+      null
+    );
+
+
+    setBoundaryDraftPoints(
+      []
+    );
+
+
+    setRoomEditModeId(
+      null
+    );
+
+
+    setRoomDrawModeId(
+      null
+    );
+
+
+    setRoomDraftPoints(
+      []
     );
 
 
@@ -1046,6 +1309,28 @@ function AnalyzePage() {
   async function handleSaveCorrections() {
 
     if (!floorPlan) {
+      return;
+    }
+
+
+    if (boundaryDrawMode) {
+
+      setError(
+        "Finish or cancel the boundary drawing before saving."
+      );
+
+
+      return;
+    }
+
+
+    if (roomDrawModeId !== null) {
+
+      setError(
+        "Finish or cancel the room drawing before saving."
+      );
+
+
       return;
     }
 
@@ -1185,6 +1470,31 @@ function AnalyzePage() {
       );
 
 
+      setBoundaryDrawMode(
+        null
+      );
+
+
+      setBoundaryDraftPoints(
+        []
+      );
+
+
+      setRoomEditModeId(
+        null
+      );
+
+
+      setRoomDrawModeId(
+        null
+      );
+
+
+      setRoomDraftPoints(
+        []
+      );
+
+
       selectElement(
         null,
         null
@@ -1231,6 +1541,229 @@ function AnalyzePage() {
   // whether the automatic result was valid=true or valid=false.
   // =========================================================
 
+  function startBoundaryDraw(
+    kind:
+      BoundaryKind
+  ) {
+
+    if (!floorPlan) {
+      return;
+    }
+
+
+    setError(
+      null
+    );
+
+
+    setSaveMessage(
+      null
+    );
+
+
+    setAddMode(
+      null
+    );
+
+
+    setBoundaryEditMode(
+      null
+    );
+
+
+    setRoomEditModeId(
+      null
+    );
+
+
+    setRoomDrawModeId(
+      null
+    );
+
+
+    setRoomDraftPoints(
+      []
+    );
+
+
+    selectElement(
+      null,
+      null
+    );
+
+
+    // IMPORTANT:
+    // Do not delete or change the current JSON polygon yet.
+    // The old polygon remains safe until the user presses Finish.
+    setBoundaryDraftPoints(
+      []
+    );
+
+
+    setBoundaryDrawMode(
+      kind
+    );
+
+  }
+
+
+  function addBoundaryDraftPoint(
+    point:
+      PixelPoint
+  ) {
+
+    if (!boundaryDrawMode) {
+      return;
+    }
+
+
+    setBoundaryDraftPoints(
+      current => {
+
+        const last =
+          current[
+            current.length - 1
+          ];
+
+
+        if (last) {
+
+          const dx =
+            point.x -
+            last.x;
+
+          const dy =
+            point.y -
+            last.y;
+
+
+          // Avoid accidental duplicate points from the same click/tap.
+          if (
+            Math.sqrt(
+              dx * dx +
+              dy * dy
+            ) < 2
+          ) {
+            return current;
+          }
+
+        }
+
+
+        return [
+          ...current,
+          point,
+        ];
+
+      }
+    );
+
+  }
+
+
+  function undoBoundaryDraftPoint() {
+
+    setError(
+      null
+    );
+
+
+    setBoundaryDraftPoints(
+      current =>
+        current.slice(
+          0,
+          -1
+        )
+    );
+
+  }
+
+
+  function cancelBoundaryDraw() {
+
+    // Because drawing uses a separate draft, cancelling does not
+    // modify the current boundary stored in floorPlan / JSON.
+    setBoundaryDrawMode(
+      null
+    );
+
+
+    setBoundaryDraftPoints(
+      []
+    );
+
+
+    setError(
+      null
+    );
+
+  }
+
+
+  function finishBoundaryDraw() {
+
+    if (!boundaryDrawMode) {
+      return;
+    }
+
+
+    if (
+      boundaryDraftPoints.length < 3
+    ) {
+
+      setError(
+        "A boundary needs at least 3 points."
+      );
+
+
+      return;
+    }
+
+
+    const kind =
+      boundaryDrawMode;
+
+
+    const finishedPolygon =
+      boundaryDraftPoints.map(
+        point => ({
+          x:
+            point.x,
+
+          y:
+            point.y,
+        })
+      );
+
+
+    // This is the moment the current JSON geometry is replaced.
+    // updateBoundaryPolygon also records source=user,
+    // reviewStatus=edited and isUserEdited=true.
+    updateBoundaryPolygon(
+      kind,
+      () =>
+        finishedPolygon
+    );
+
+
+    setBoundaryDrawMode(
+      null
+    );
+
+
+    setBoundaryDraftPoints(
+      []
+    );
+
+
+    // Keep the freshly created polygon editable immediately.
+    setBoundaryEditMode(
+      kind
+    );
+
+  }
+
+
   function updateBoundaryPolygon(
     kind:
       BoundaryKind,
@@ -1271,9 +1804,62 @@ function AnalyzePage() {
 
 
         const nextPolygon =
-          update(
-            currentPolygon
+          normalizePolygon(
+            update(
+              currentPolygon
+            )
           );
+
+
+        let nextOuter =
+          kind === "outer"
+            ? nextPolygon
+            : normalizePolygon(
+                boundary.outerPolygon
+              );
+
+
+        let nextUsable =
+          kind === "usable"
+            ? nextPolygon
+            : normalizePolygon(
+                boundary.usablePolygon
+              );
+
+
+        // Keep usableBoundary inside outerBoundary. If the edited outer
+        // boundary becomes smaller, the usable polygon is clipped at the
+        // same time. This is geometry-only work; no AI detector is rerun.
+        if (
+          nextOuter.length >= 3 &&
+          nextUsable.length >= 3 &&
+          !polygonInsidePolygon(
+            nextUsable,
+            nextOuter
+          )
+        ) {
+          nextUsable =
+            clipPolygonToPolygon(
+              nextUsable,
+              nextOuter
+            )
+            ?? [];
+        }
+
+
+        // Rooms are children of usableBoundary. Partially outside rooms are
+        // clipped automatically. A room with no overlap is intentionally
+        // kept so validation can show it instead of silently deleting it.
+        const rooms =
+          nextUsable.length >= 3
+            ? current.revision.rooms.map(
+                room =>
+                  constrainRoomToUsableBoundary(
+                    room,
+                    nextUsable
+                  )
+              )
+            : current.revision.rooms;
 
 
         return {
@@ -1282,18 +1868,16 @@ function AnalyzePage() {
           revision: {
             ...current.revision,
 
+            rooms,
+
             buildingBoundary: {
               ...boundary,
 
               outerPolygon:
-                kind === "outer"
-                  ? nextPolygon
-                  : boundary.outerPolygon,
+                nextOuter,
 
               usablePolygon:
-                kind === "usable"
-                  ? nextPolygon
-                  : boundary.usablePolygon,
+                nextUsable,
 
               // Current geometry is now user-authored.
               // The original automaticAssessment is preserved.
@@ -1464,6 +2048,31 @@ function AnalyzePage() {
     );
 
 
+    setBoundaryDrawMode(
+      null
+    );
+
+
+    setBoundaryDraftPoints(
+      []
+    );
+
+
+    setRoomEditModeId(
+      null
+    );
+
+
+    setRoomDrawModeId(
+      null
+    );
+
+
+    setRoomDraftPoints(
+      []
+    );
+
+
     selectElement(
       null,
       null
@@ -1481,6 +2090,17 @@ function AnalyzePage() {
 
 
   function confirmBoundary() {
+
+    if (boundaryDrawMode) {
+
+      setError(
+        "Finish or cancel the boundary drawing first."
+      );
+
+
+      return;
+    }
+
 
     setSaveMessage(
       null
@@ -1518,6 +2138,548 @@ function AnalyzePage() {
         };
 
       }
+    );
+
+  }
+
+
+  // =========================================================
+  // ROOM SHAPE EDITING
+  // =========================================================
+
+  function updateRoomPolygon(
+    roomId:
+      number,
+
+    update: (
+      polygon: PixelPoint[]
+    ) => PixelPoint[]
+  ) {
+
+    setSaveMessage(
+      null
+    );
+
+
+    setError(
+      null
+    );
+
+
+    setFloorPlan(
+      current => {
+
+        if (!current) {
+          return current;
+        }
+
+
+        const usablePolygon =
+          normalizePolygon(
+            current
+              .revision
+              .buildingBoundary
+              .usablePolygon
+          );
+
+
+        return {
+          ...current,
+
+          revision: {
+            ...current.revision,
+
+            rooms:
+              current
+                .revision
+                .rooms
+                .map(
+                  room => {
+
+                    if (
+                      room.id !== roomId
+                    ) {
+                      return room;
+                    }
+
+
+                    const candidate =
+                      normalizePolygon(
+                        update(
+                          room.polygon
+                        )
+                      );
+
+
+                    if (
+                      candidate.length < 3 ||
+                      polygonArea(candidate) <= 0.000001
+                    ) {
+                      return room;
+                    }
+
+
+                    if (
+                      usablePolygon.length < 3 ||
+                      polygonInsidePolygon(
+                        candidate,
+                        usablePolygon
+                      )
+                    ) {
+                      return roomWithPolygon(
+                        room,
+                        candidate
+                      );
+                    }
+
+
+                    const clipped =
+                      clipPolygonToPolygon(
+                        candidate,
+                        usablePolygon
+                      );
+
+
+                    // If there is partial overlap, keep only the part inside
+                    // usableBoundary. If there is no overlap at all, keep the
+                    // candidate visible so validation can flag it instead of
+                    // silently deleting the room.
+                    return roomWithPolygon(
+                      room,
+                      clipped &&
+                      clipped.length >= 3 &&
+                      polygonArea(clipped) > 0.000001
+                        ? clipped
+                        : candidate
+                    );
+
+                  }
+                ),
+          },
+        };
+
+      }
+    );
+
+  }
+
+
+  function moveRoomPoint(
+    roomId:
+      number,
+
+    pointIndex:
+      number,
+
+    point:
+      PixelPoint
+  ) {
+
+    updateRoomPolygon(
+      roomId,
+
+      polygon =>
+        polygon.map(
+          (
+            currentPoint,
+            index
+          ) =>
+            index === pointIndex
+              ? point
+              : currentPoint
+        )
+    );
+
+  }
+
+
+  function insertRoomPoint(
+    roomId:
+      number,
+
+    insertAfterIndex:
+      number,
+
+    point:
+      PixelPoint
+  ) {
+
+    updateRoomPolygon(
+      roomId,
+
+      polygon => {
+
+        const copy =
+          [...polygon];
+
+
+        copy.splice(
+          insertAfterIndex + 1,
+          0,
+          point
+        );
+
+
+        return copy;
+
+      }
+    );
+
+  }
+
+
+  function deleteRoomPoint(
+    roomId:
+      number,
+
+    pointIndex:
+      number
+  ) {
+
+    updateRoomPolygon(
+      roomId,
+
+      polygon => {
+
+        if (
+          polygon.length <= 3
+        ) {
+          return polygon;
+        }
+
+
+        return polygon.filter(
+          (
+            _,
+            index
+          ) =>
+            index !== pointIndex
+        );
+
+      }
+    );
+
+  }
+
+
+  function toggleRoomEdit(
+    roomId:
+      number
+  ) {
+
+    if (!floorPlan) {
+      return;
+    }
+
+
+    const room =
+      floorPlan
+        .revision
+        .rooms
+        .find(
+          current =>
+            current.id === roomId
+        );
+
+
+    if (
+      !room ||
+      room.polygon.length < 3
+    ) {
+      setError(
+        "This room does not contain a polygon to edit."
+      );
+
+      return;
+    }
+
+
+    setError(
+      null
+    );
+
+
+    setSaveMessage(
+      null
+    );
+
+
+    setAddMode(
+      null
+    );
+
+
+    setBoundaryEditMode(
+      null
+    );
+
+
+    setBoundaryDrawMode(
+      null
+    );
+
+
+    setBoundaryDraftPoints(
+      []
+    );
+
+
+    setRoomDrawModeId(
+      null
+    );
+
+
+    setRoomDraftPoints(
+      []
+    );
+
+
+    selectElement(
+      "room",
+      roomId
+    );
+
+
+    setRoomEditModeId(
+      current =>
+        current === roomId
+          ? null
+          : roomId
+    );
+
+  }
+
+
+  function startRoomDraw(
+    roomId:
+      number
+  ) {
+
+    if (!floorPlan) {
+      return;
+    }
+
+
+    const roomExists =
+      floorPlan
+        .revision
+        .rooms
+        .some(
+          room =>
+            room.id === roomId
+        );
+
+
+    if (!roomExists) {
+      return;
+    }
+
+
+    setError(
+      null
+    );
+
+
+    setSaveMessage(
+      null
+    );
+
+
+    setAddMode(
+      null
+    );
+
+
+    setBoundaryEditMode(
+      null
+    );
+
+
+    setBoundaryDrawMode(
+      null
+    );
+
+
+    setBoundaryDraftPoints(
+      []
+    );
+
+
+    setRoomEditModeId(
+      null
+    );
+
+
+    setRoomDraftPoints(
+      []
+    );
+
+
+    selectElement(
+      "room",
+      roomId
+    );
+
+
+    // The current room polygon is preserved until Finish is pressed.
+    setRoomDrawModeId(
+      roomId
+    );
+
+  }
+
+
+  function addRoomDraftPoint(
+    point:
+      PixelPoint
+  ) {
+
+    if (
+      roomDrawModeId === null
+    ) {
+      return;
+    }
+
+
+    setRoomDraftPoints(
+      current => {
+
+        const last =
+          current[
+            current.length - 1
+          ];
+
+
+        if (last) {
+
+          const dx =
+            point.x - last.x;
+
+          const dy =
+            point.y - last.y;
+
+
+          if (
+            Math.sqrt(
+              dx * dx +
+              dy * dy
+            ) < 2
+          ) {
+            return current;
+          }
+
+        }
+
+
+        return [
+          ...current,
+          point,
+        ];
+
+      }
+    );
+
+  }
+
+
+  function undoRoomDraftPoint() {
+
+    setError(
+      null
+    );
+
+
+    setRoomDraftPoints(
+      current =>
+        current.slice(
+          0,
+          -1
+        )
+    );
+
+  }
+
+
+  function cancelRoomDraw() {
+
+    setRoomDrawModeId(
+      null
+    );
+
+
+    setRoomDraftPoints(
+      []
+    );
+
+
+    setError(
+      null
+    );
+
+  }
+
+
+  function finishRoomDraw() {
+
+    if (
+      roomDrawModeId === null
+    ) {
+      return;
+    }
+
+
+    if (
+      roomDraftPoints.length < 3
+    ) {
+      setError(
+        "A room polygon needs at least 3 points."
+      );
+
+      return;
+    }
+
+
+    const finishedPolygon =
+      normalizePolygon(
+        roomDraftPoints
+      );
+
+
+    if (
+      finishedPolygon.length < 3 ||
+      polygonArea(finishedPolygon) <= 0.000001
+    ) {
+      setError(
+        "The room polygon must have a positive area."
+      );
+
+      return;
+    }
+
+
+    const roomId =
+      roomDrawModeId;
+
+
+    updateRoomPolygon(
+      roomId,
+      () =>
+        finishedPolygon
+    );
+
+
+    setRoomDrawModeId(
+      null
+    );
+
+
+    setRoomDraftPoints(
+      []
+    );
+
+
+    setRoomEditModeId(
+      roomId
     );
 
   }
@@ -1646,30 +2808,62 @@ function AnalyzePage() {
         );
 
 
-      const centroid = {
-        x:
-          (
-            bbox.x1 +
-            bbox.x2
-          ) / 2,
+      const usablePolygon =
+        normalizePolygon(
+          floorPlan
+            .revision
+            .buildingBoundary
+            .usablePolygon
+        );
 
-        y:
-          (
-            bbox.y1 +
-            bbox.y2
-          ) / 2,
-      };
+
+      let roomPolygon =
+        normalizePolygon(
+          polygon
+        );
+
+
+      if (
+        usablePolygon.length >= 3 &&
+        !polygonInsidePolygon(
+          roomPolygon,
+          usablePolygon
+        )
+      ) {
+        const clipped =
+          clipPolygonToPolygon(
+            roomPolygon,
+            usablePolygon
+          );
+
+
+        if (
+          !clipped ||
+          clipped.length < 3 ||
+          polygonArea(clipped) <= 0.000001
+        ) {
+          setError(
+            "The new room must overlap the usable building boundary."
+          );
+
+          return;
+        }
+
+
+        roomPolygon =
+          clipped;
+      }
+
+
+      const centroid =
+        polygonCentroid(
+          roomPolygon
+        );
 
 
       const areaPixels =
-        (
-          bbox.x2 -
-          bbox.x1
-        )
-        *
-        (
-          bbox.y2 -
-          bbox.y1
+        polygonArea(
+          roomPolygon
         );
 
 
@@ -1695,7 +2889,8 @@ function AnalyzePage() {
               confidence:
                 0,
 
-              polygon,
+              polygon:
+                roomPolygon,
 
               centroid,
 
@@ -2099,6 +3294,15 @@ function AnalyzePage() {
           type === "room"
         ) {
 
+          const usablePolygon =
+            normalizePolygon(
+              current
+                .revision
+                .buildingBoundary
+                .usablePolygon
+            );
+
+
           return {
             ...current,
 
@@ -2119,10 +3323,9 @@ function AnalyzePage() {
                       }
 
 
-                      return {
-                        ...room,
-
-                        polygon:
+                      const moved =
+                        roomWithPolygon(
+                          room,
                           room
                             .polygon
                             .map(
@@ -2135,18 +3338,18 @@ function AnalyzePage() {
                                   point.y +
                                   deltaY,
                               })
-                            ),
+                            )
+                        );
 
-                        centroid: {
-                          x:
-                            room.centroid.x +
-                            deltaX,
 
-                          y:
-                            room.centroid.y +
-                            deltaY,
-                        },
-                      };
+                      return (
+                        usablePolygon.length >= 3
+                          ? constrainRoomToUsableBoundary(
+                              moved,
+                              usablePolygon
+                            )
+                          : moved
+                      );
 
                     }
                   ),
@@ -3507,123 +4710,277 @@ function AnalyzePage() {
                 }
 
 
-                <div className="boundary-actions">
-
-                  <button
-                    type="button"
-
-                    className={
-                      boundaryEditMode === "outer"
-                        ? "boundary-button active"
-                        : "boundary-button"
-                    }
-
-                    disabled={
-                      floorPlan
-                        .revision
-                        .buildingBoundary
-                        .outerPolygon
-                        .length < 3
-                    }
-
-                    onClick={
-                      () =>
-                        toggleBoundaryEdit(
-                          "outer"
-                        )
-                    }
-                  >
-
-                    {
-                      boundaryEditMode === "outer"
-                        ? "Stop editing outer"
-                        : "Edit outer boundary"
-                    }
-
-                  </button>
-
-
-                  <button
-                    type="button"
-
-                    className={
-                      boundaryEditMode === "usable"
-                        ? "boundary-button active"
-                        : "boundary-button"
-                    }
-
-                    disabled={
-                      floorPlan
-                        .revision
-                        .buildingBoundary
-                        .usablePolygon
-                        .length < 3
-                    }
-
-                    onClick={
-                      () =>
-                        toggleBoundaryEdit(
-                          "usable"
-                        )
-                    }
-                  >
-
-                    {
-                      boundaryEditMode === "usable"
-                        ? "Stop editing usable"
-                        : "Edit usable boundary"
-                    }
-
-                  </button>
-
-
-                  <button
-                    type="button"
-
-                    className="boundary-confirm-button"
-
-                    disabled={
-                      floorPlan
-                        .revision
-                        .buildingBoundary
-                        .outerPolygon
-                        .length < 3
-                      ||
-                      floorPlan
-                        .revision
-                        .buildingBoundary
-                        .usablePolygon
-                        .length < 3
-                    }
-
-                    onClick={
-                      confirmBoundary
-                    }
-                  >
-
-                    Mark boundary reviewed
-
-                  </button>
-
-                </div>
-
-
                 {
-                  boundaryEditMode && (
+                  boundaryDrawMode ? (
 
-                    <div className="boundary-edit-instruction">
+                    <>
 
-                      Editing{" "}
-                      <strong>
+                      <div className="boundary-actions">
+
+                        <button
+                          type="button"
+
+                          className="boundary-button active"
+
+                          disabled={
+                            boundaryDraftPoints.length < 3
+                          }
+
+                          onClick={
+                            finishBoundaryDraw
+                          }
+                        >
+
+                          Finish {
+                            boundaryDrawMode
+                          } boundary
+
+                        </button>
+
+
+                        <button
+                          type="button"
+
+                          className="boundary-button"
+
+                          disabled={
+                            boundaryDraftPoints.length === 0
+                          }
+
+                          onClick={
+                            undoBoundaryDraftPoint
+                          }
+                        >
+
+                          Undo last point
+
+                        </button>
+
+
+                        <button
+                          type="button"
+
+                          className="boundary-button"
+
+                          onClick={
+                            cancelBoundaryDraw
+                          }
+                        >
+
+                          Cancel
+
+                        </button>
+
+                      </div>
+
+
+                      <div className="boundary-edit-instruction">
+
+                        Drawing{" "}
+                        <strong>
+                          {
+                            boundaryDrawMode
+                          }
+                        </strong>
+                        {" "}boundary: click around the building in order.
+                        {" "}
                         {
-                          boundaryEditMode
-                        }
-                      </strong>
-                      {" "}boundary: drag a point to move it.
-                      Double-click a boundary line to add a point.
-                      Double-click a point to remove it.
+                          boundaryDraftPoints.length
+                        }{" "}
+                        point
+                        {
+                          boundaryDraftPoints.length === 1
+                            ? ""
+                            : "s"
+                        }{" "}placed.
+                        The old boundary is kept until you press Finish.
 
-                    </div>
+                      </div>
+
+                    </>
+
+                  ) : (
+
+                    <>
+
+                      <div className="boundary-actions">
+
+                        {
+                          floorPlan
+                            .revision
+                            .buildingBoundary
+                            .outerPolygon
+                            .length >= 3 && (
+
+                              <button
+                                type="button"
+
+                                className={
+                                  boundaryEditMode === "outer"
+                                    ? "boundary-button active"
+                                    : "boundary-button"
+                                }
+
+                                onClick={
+                                  () =>
+                                    toggleBoundaryEdit(
+                                      "outer"
+                                    )
+                                }
+                              >
+
+                                {
+                                  boundaryEditMode === "outer"
+                                    ? "Stop editing outer"
+                                    : "Edit outer boundary"
+                                }
+
+                              </button>
+
+                            )
+                        }
+
+
+                        <button
+                          type="button"
+
+                          className="boundary-button"
+
+                          onClick={
+                            () =>
+                              startBoundaryDraw(
+                                "outer"
+                              )
+                          }
+                        >
+
+                          {
+                            floorPlan
+                              .revision
+                              .buildingBoundary
+                              .outerPolygon
+                              .length >= 3
+                              ? "Redraw outer boundary"
+                              : "Draw outer boundary"
+                          }
+
+                        </button>
+
+
+                        {
+                          floorPlan
+                            .revision
+                            .buildingBoundary
+                            .usablePolygon
+                            .length >= 3 && (
+
+                              <button
+                                type="button"
+
+                                className={
+                                  boundaryEditMode === "usable"
+                                    ? "boundary-button active"
+                                    : "boundary-button"
+                                }
+
+                                onClick={
+                                  () =>
+                                    toggleBoundaryEdit(
+                                      "usable"
+                                    )
+                                }
+                              >
+
+                                {
+                                  boundaryEditMode === "usable"
+                                    ? "Stop editing usable"
+                                    : "Edit usable boundary"
+                                }
+
+                              </button>
+
+                            )
+                        }
+
+
+                        <button
+                          type="button"
+
+                          className="boundary-button"
+
+                          onClick={
+                            () =>
+                              startBoundaryDraw(
+                                "usable"
+                              )
+                          }
+                        >
+
+                          {
+                            floorPlan
+                              .revision
+                              .buildingBoundary
+                              .usablePolygon
+                              .length >= 3
+                              ? "Redraw usable boundary"
+                              : "Draw usable boundary"
+                          }
+
+                        </button>
+
+
+                        <button
+                          type="button"
+
+                          className="boundary-confirm-button"
+
+                          disabled={
+                            floorPlan
+                              .revision
+                              .buildingBoundary
+                              .outerPolygon
+                              .length < 3
+                            ||
+                            floorPlan
+                              .revision
+                              .buildingBoundary
+                              .usablePolygon
+                              .length < 3
+                          }
+
+                          onClick={
+                            confirmBoundary
+                          }
+                        >
+
+                          Mark boundary reviewed
+
+                        </button>
+
+                      </div>
+
+
+                      {
+                        boundaryEditMode && (
+
+                          <div className="boundary-edit-instruction">
+
+                            Editing{" "}
+                            <strong>
+                              {
+                                boundaryEditMode
+                              }
+                            </strong>
+                            {" "}boundary: drag a point to move it.
+                            Double-click a boundary line to add a point.
+                            Double-click a point to remove it.
+
+                          </div>
+
+                        )
+                      }
+
+                    </>
 
                   )
                 }
@@ -3930,6 +5287,21 @@ function AnalyzePage() {
 
                       </div>
 
+
+                      <div>
+
+                        {
+                          saveValidation.geometryValid
+                            ? "✓"
+                            : "✕"
+                        }
+
+                        {" "}
+
+                        Room shapes are inside the usable boundary
+
+                      </div>
+
                     </div>
 
 
@@ -4018,6 +5390,8 @@ function AnalyzePage() {
 
                   disabled={
                     saving
+                    ||
+                    boundaryDrawMode !== null
                     ||
                     !saveValidation
                     ||
@@ -4176,6 +5550,26 @@ function AnalyzePage() {
                       boundaryEditMode
                     }
 
+                    boundaryDrawMode={
+                      boundaryDrawMode
+                    }
+
+                    boundaryDraftPoints={
+                      boundaryDraftPoints
+                    }
+
+                    roomEditModeId={
+                      roomEditModeId
+                    }
+
+                    roomDrawModeId={
+                      roomDrawModeId
+                    }
+
+                    roomDraftPoints={
+                      roomDraftPoints
+                    }
+
                     onSelect={
                       selectElement
                     }
@@ -4198,6 +5592,26 @@ function AnalyzePage() {
 
                     onDeleteBoundaryPoint={
                       deleteBoundaryPoint
+                    }
+
+                    onAddBoundaryDraftPoint={
+                      addBoundaryDraftPoint
+                    }
+
+                    onMoveRoomPoint={
+                      moveRoomPoint
+                    }
+
+                    onInsertRoomPoint={
+                      insertRoomPoint
+                    }
+
+                    onDeleteRoomPoint={
+                      deleteRoomPoint
+                    }
+
+                    onAddRoomDraftPoint={
+                      addRoomDraftPoint
                     }
                   />
 
@@ -4366,8 +5780,180 @@ function AnalyzePage() {
                         </div>
 
 
+                        <div className="editor-field">
+
+                          <label>
+                            Pixel area
+                          </label>
+
+
+                          <div className="readonly-value">
+                            {
+                              selectedRoom
+                                .areaPixels
+                                .toFixed(1)
+                            } px²
+                          </div>
+
+                        </div>
+
+
+                        <div className="editor-field">
+
+                          <label>
+                            Room shape
+                          </label>
+
+
+                          {
+                            roomDrawModeId === selectedRoom.id
+                              ? (
+
+                                  <>
+
+                                    <div className="boundary-actions">
+
+                                      <button
+                                        className="boundary-button active"
+                                        disabled={
+                                          roomDraftPoints.length < 3
+                                        }
+                                        onClick={
+                                          finishRoomDraw
+                                        }
+                                      >
+                                        Finish redraw
+                                      </button>
+
+
+                                      <button
+                                        className="boundary-button"
+                                        disabled={
+                                          roomDraftPoints.length === 0
+                                        }
+                                        onClick={
+                                          undoRoomDraftPoint
+                                        }
+                                      >
+                                        Undo point
+                                      </button>
+
+
+                                      <button
+                                        className="boundary-button"
+                                        onClick={
+                                          cancelRoomDraw
+                                        }
+                                      >
+                                        Cancel
+                                      </button>
+
+                                    </div>
+
+
+                                    <div className="boundary-edit-instruction">
+                                      Click around the room in order.
+                                      {" "}
+                                      {roomDraftPoints.length}
+                                      {" "}
+                                      point{roomDraftPoints.length === 1 ? "" : "s"} added.
+                                      The old room shape is kept until Finish.
+                                    </div>
+
+                                  </>
+
+                                )
+                              : (
+
+                                  <>
+
+                                    <div className="boundary-actions">
+
+                                      <button
+                                        className={
+                                          roomEditModeId === selectedRoom.id
+                                            ? "boundary-button active"
+                                            : "boundary-button"
+                                        }
+                                        onClick={
+                                          () =>
+                                            toggleRoomEdit(
+                                              selectedRoom.id
+                                            )
+                                        }
+                                      >
+                                        {
+                                          roomEditModeId === selectedRoom.id
+                                            ? "Stop editing shape"
+                                            : "Edit room shape"
+                                        }
+                                      </button>
+
+
+                                      <button
+                                        className="boundary-button"
+                                        onClick={
+                                          () =>
+                                            startRoomDraw(
+                                              selectedRoom.id
+                                            )
+                                        }
+                                      >
+                                        Redraw room
+                                      </button>
+
+                                    </div>
+
+
+                                    {
+                                      roomEditModeId === selectedRoom.id && (
+
+                                        <div className="boundary-edit-instruction">
+                                          Drag a green point to move it.
+                                          Double-click a room edge to add a point.
+                                          Double-click a point to delete it.
+                                          The room is clipped automatically to the usable boundary.
+                                        </div>
+
+                                      )
+                                    }
+
+                                  </>
+
+                                )
+                          }
+
+
+                          {
+                            saveValidation
+                              ?.roomsOutsideUsableBoundary
+                              .some(
+                                room =>
+                                  room.id === selectedRoom.id
+                              ) && (
+
+                                <small
+                                  style={{
+                                    color: "#b42318",
+                                    marginTop: "8px",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  This room is outside the usable boundary. Edit or redraw it before saving.
+                                </small>
+
+                              )
+                          }
+
+                        </div>
+
+
                         <button
                           className="delete-button"
+
+                          disabled={
+                            roomDrawModeId === selectedRoom.id
+                          }
 
                           onClick={
                             () =>
