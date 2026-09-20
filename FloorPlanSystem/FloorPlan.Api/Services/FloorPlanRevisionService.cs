@@ -33,20 +33,14 @@ public class FloorPlanRevisionService
     }
 
 
-    // =========================================================
-    // SAVE USER REVISION
-    // =========================================================
-
+   
     public async Task<SavedRevisionResponse>
         SaveUserRevisionAsync(
             int floorPlanId,
             SaveRevisionRequest request,
             CancellationToken cancellationToken = default)
     {
-        // =====================================================
-        // FLOOR PLAN
-        // =====================================================
-
+        
         var floorPlan =
             await _db.FloorPlans
                 .AsNoTracking()
@@ -60,19 +54,13 @@ public class FloorPlanRevisionService
                 );
 
 
-        if (
-            floorPlan == null
-        )
+        if (floorPlan == null)
         {
             throw new KeyNotFoundException(
                 $"Floor plan {floorPlanId} was not found."
             );
         }
 
-
-        // =====================================================
-        // BASE REVISION
-        // =====================================================
 
         var baseRevision =
             await _db.FloorPlanRevisions
@@ -90,9 +78,7 @@ public class FloorPlanRevisionService
                 );
 
 
-        if (
-            baseRevision == null
-        )
+        if (baseRevision == null)
         {
             throw new InvalidOperationException(
                 "The base revision does not exist " +
@@ -100,60 +86,33 @@ public class FloorPlanRevisionService
             );
         }
 
-
-        // =====================================================
-        // NORMALIZE BOUNDARY PROVENANCE
-        // =====================================================
-        //
-        // Do not rely only on the frontend to tell us whether the
-        // boundary geometry changed. The server compares it with the
-        // base revision and marks the current boundary as user-edited
-        // when necessary.
-        // =====================================================
-
         NormalizeBoundaryForUserRevision(
             request.BuildingBoundary,
             baseRevision.BuildingBoundaryJson
         );
 
 
-        // Recalculate room geometry from the polygons before validating or
-        // saving. This guarantees that centroid/areaPixels in the database
-        // always match the actual room polygon sent by the editor.
+       
         NormalizeRoomGeometry(
             request.Rooms
         );
 
 
-        // =====================================================
-        // BASIC STRUCTURAL VALIDATION
-        // =====================================================
-
+      
         ValidateRevisionStructure(
             request,
             floorPlan
         );
 
 
-        // =====================================================
-        // FLOOR PLAN VALIDATION
-        //
-        // IMPORTANT:
-        // We calculate this from the CURRENT edited data.
-        //
-        // We DO NOT trust request.Validation because it may
-        // contain the old AI validation result.
-        // =====================================================
-
+     
         var saveValidation =
             _validationService.Validate(
                 request
             );
 
 
-        if (
-            !saveValidation.CanSave
-        )
+        if (!saveValidation.CanSave)
         {
             var message =
                 "Floor plan cannot be saved:\n- "
@@ -170,10 +129,7 @@ public class FloorPlanRevisionService
         }
 
 
-        // =====================================================
-        // PRESERVE ROOM AI CONFIDENCE
-        // =====================================================
-
+       
         var baseRoomConfidences =
             await _db.Rooms
                 .AsNoTracking()
@@ -195,10 +151,7 @@ public class FloorPlanRevisionService
                 );
 
 
-        // =====================================================
-        // PRESERVE DOOR AI CONFIDENCE
-        // =====================================================
-
+      
         var baseDoorConfidences =
             await _db.Doors
                 .AsNoTracking()
@@ -220,10 +173,7 @@ public class FloorPlanRevisionService
                 );
 
 
-        // =====================================================
-        // NEXT REVISION NUMBER
-        // =====================================================
-
+       
         var latestRevisionNumber =
             await _db.FloorPlanRevisions
 
@@ -235,8 +185,7 @@ public class FloorPlanRevisionService
 
                 .MaxAsync(
                     x =>
-                        (int?)
-                        x.RevisionNumber,
+                        (int?)x.RevisionNumber,
 
                     cancellationToken
                 )
@@ -247,10 +196,6 @@ public class FloorPlanRevisionService
             latestRevisionNumber + 1;
 
 
-        // =====================================================
-        // TRANSACTION
-        // =====================================================
-
         await using var transaction =
             await _db.Database
                 .BeginTransactionAsync(
@@ -260,10 +205,6 @@ public class FloorPlanRevisionService
 
         try
         {
-            // =================================================
-            // CREATE REVISION
-            // =================================================
-
             var revision =
                 new FloorPlanRevisionEntity
                 {
@@ -282,13 +223,6 @@ public class FloorPlanRevisionService
                     BasedOnRevisionId =
                         baseRevision.Id,
 
-
-                    // =========================================
-                    // IMPORTANT:
-                    //
-                    // These values are recalculated from the
-                    // current corrected floor plan.
-                    // =========================================
 
                     Valid =
                         saveValidation.Valid,
@@ -321,10 +255,6 @@ public class FloorPlanRevisionService
                 cancellationToken
             );
 
-
-            // =================================================
-            // ROOMS
-            // =================================================
 
             var roomMap =
                 new Dictionary<
@@ -360,10 +290,6 @@ public class FloorPlanRevisionService
                         Confidence =
                             originalConfidence,
 
-
-                        // =====================================
-                        // REAL AREA
-                        // =====================================
 
                         AreaSquareMetres =
                             sourceRoom
@@ -403,17 +329,12 @@ public class FloorPlanRevisionService
             }
 
 
-            // Save first so the rooms receive
-            // their database IDs.
+            // Rooms need database IDs before doors/openings are saved.
 
             await _db.SaveChangesAsync(
                 cancellationToken
             );
 
-
-            // =================================================
-            // DOORS
-            // =================================================
 
             foreach (
                 var sourceDoor
@@ -487,7 +408,7 @@ public class FloorPlanRevisionService
                         Room1Id =
                             room1.Id,
 
-                        // null means Room1 <-> Outside.
+                        // null = room <-> outside
                         Room2Id =
                             room2?.Id
                     };
@@ -498,10 +419,6 @@ public class FloorPlanRevisionService
                 );
             }
 
-
-            // =================================================
-            // WINDOWS
-            // =================================================
 
             foreach (
                 var sourceWindow
@@ -550,10 +467,6 @@ public class FloorPlanRevisionService
                 );
             }
 
-
-            // =================================================
-            // OPENINGS
-            // =================================================
 
             foreach (
                 var sourceOpening
@@ -626,10 +539,8 @@ public class FloorPlanRevisionService
             }
 
 
-            // =================================================
-            // SAVE
-            // =================================================
-
+          
+         
             await _db.SaveChangesAsync(
                 cancellationToken
             );
@@ -640,10 +551,7 @@ public class FloorPlanRevisionService
             );
 
 
-            // =================================================
-            // RESPONSE
-            // =================================================
-
+         
             return new SavedRevisionResponse
             {
                 FloorPlanId =
@@ -680,11 +588,7 @@ public class FloorPlanRevisionService
     }
 
 
-    // =========================================================
-    // GET ROOM
-    // =========================================================
-
-    private static RoomEntity GetRoom(
+      private static RoomEntity GetRoom(
         Dictionary<int, RoomEntity> rooms,
         int sourceRoomId,
         string owner)
@@ -708,16 +612,7 @@ public class FloorPlanRevisionService
     }
 
 
-    // =========================================================
-    // STRUCTURAL VALIDATION
-    //
-    // This checks IDs, polygons, coordinates,
-    // door relationships, etc.
-    //
-    // Semantic floor-plan validation is handled
-    // by FloorPlanValidationService.
-    // =========================================================
-
+   
     private static void ValidateRevisionStructure(
         SaveRevisionRequest request,
         FloorPlanEntity floorPlan)
@@ -754,10 +649,7 @@ public class FloorPlanRevisionService
         );
 
 
-        // =====================================================
-        // ROOMS
-        // =====================================================
-
+      
         foreach (
             var room
             in request.Rooms
@@ -771,10 +663,6 @@ public class FloorPlanRevisionService
         }
 
 
-        // =====================================================
-        // DOORS
-        // =====================================================
-
         foreach (
             var door
             in request.Doors
@@ -787,7 +675,6 @@ public class FloorPlanRevisionService
             );
 
 
-            // room2 may be null for an exterior door.
             if (
                 door.Room2 is not null
                 &&
@@ -802,10 +689,7 @@ public class FloorPlanRevisionService
         }
 
 
-        // =====================================================
-        // WINDOWS
-        // =====================================================
-
+        
         foreach (
             var window
             in request.Windows
@@ -818,10 +702,6 @@ public class FloorPlanRevisionService
             );
         }
 
-
-        // =====================================================
-        // OPENINGS
-        // =====================================================
 
         foreach (
             var opening
@@ -847,41 +727,29 @@ public class FloorPlanRevisionService
         }
 
 
-        // =====================================================
-        // BUILDING BOUNDARY
-        // =====================================================
-        //
-        // An uncertain AI assessment does NOT prevent saving.
-        // We only validate geometry when polygon coordinates exist.
-        // =====================================================
+        
+        var buildingPolygon =
+            request
+                .BuildingBoundary
+                .Polygon;
+
+
+        // If coordinates exist, it must be a real polygon.
 
         if (
-            request.BuildingBoundary
-                .OuterPolygon
-                .Count > 0
+            buildingPolygon.Count > 0
         )
         {
             ValidatePolygon(
-                request.BuildingBoundary.OuterPolygon,
+                buildingPolygon,
                 floorPlan,
-                "Building outer boundary"
+                "Building boundary"
             );
         }
 
 
-        if (
-            request.BuildingBoundary
-                .UsablePolygon
-                .Count > 0
-        )
-        {
-            ValidatePolygon(
-                request.BuildingBoundary.UsablePolygon,
-                floorPlan,
-                "Building usable boundary"
-            );
-        }
-
+        // A boundary cannot be marked confirmed when it has no
+        // valid geometry.
 
         if (
             string.Equals(
@@ -890,62 +758,21 @@ public class FloorPlanRevisionService
                 StringComparison.OrdinalIgnoreCase
             )
             &&
-            (
-                request.BuildingBoundary.OuterPolygon.Count < 3
-                ||
-                request.BuildingBoundary.UsablePolygon.Count < 3
-            )
+            buildingPolygon.Count < 3
         )
         {
             throw new InvalidOperationException(
-                "A confirmed building boundary must contain both " +
-                "outer and usable polygons."
+                "A confirmed building boundary must contain " +
+                "a valid polygon."
             );
         }
 
 
-        var hasOuterBoundary =
-            request.BuildingBoundary
-                .OuterPolygon
-                .Count >= 3;
-
-        var hasUsableBoundary =
-            request.BuildingBoundary
-                .UsablePolygon
-                .Count >= 3;
-
-
+       
         if (
-            hasOuterBoundary !=
-            hasUsableBoundary
+            buildingPolygon.Count >= 3
         )
         {
-            throw new InvalidOperationException(
-                "The building boundary must contain both an outer " +
-                "polygon and a usable polygon."
-            );
-        }
-
-
-        if (
-            hasOuterBoundary &&
-            hasUsableBoundary
-        )
-        {
-            if (
-                !PolygonInsidePolygon(
-                    request.BuildingBoundary.UsablePolygon,
-                    request.BuildingBoundary.OuterPolygon
-                )
-            )
-            {
-                throw new InvalidOperationException(
-                    "The usable building boundary must stay inside " +
-                    "the outer building boundary."
-                );
-            }
-
-
             foreach (
                 var room
                 in request.Rooms
@@ -954,7 +781,7 @@ public class FloorPlanRevisionService
                 if (
                     !PolygonInsidePolygon(
                         room.Polygon,
-                        request.BuildingBoundary.UsablePolygon
+                        buildingPolygon
                     )
                 )
                 {
@@ -968,10 +795,6 @@ public class FloorPlanRevisionService
     }
 
 
-    // =========================================================
-    // BOUNDARY PROVENANCE
-    // =========================================================
-
     private static void NormalizeBoundaryForUserRevision(
         BuildingBoundaryDetection current,
         string? baseBoundaryJson)
@@ -982,15 +805,11 @@ public class FloorPlanRevisionService
             );
 
 
+       
         var geometryChanged =
             !PolygonsEqual(
-                current.OuterPolygon,
-                baseBoundary.OuterPolygon
-            )
-            ||
-            !PolygonsEqual(
-                current.UsablePolygon,
-                baseBoundary.UsablePolygon
+                current.Polygon,
+                baseBoundary.Polygon
             );
 
 
@@ -1028,9 +847,8 @@ public class FloorPlanRevisionService
             }
 
 
-            // Preserve the fact that an already edited boundary remains
-            // user-edited in later revisions even when this save did not
-            // move another point.
+            // Preserve user-edit provenance between revisions.
+
             current.IsUserEdited =
                 current.IsUserEdited
                 ||
@@ -1092,13 +910,67 @@ public class FloorPlanRevisionService
 
         try
         {
-            return JsonSerializer.Deserialize<
-                BuildingBoundaryDetection
-            >(
-                json,
-                BoundaryJsonOptions
+            var boundary =
+                JsonSerializer.Deserialize<
+                    BuildingBoundaryDetection
+                >(
+                    json,
+                    BoundaryJsonOptions
+                )
+                ?? new BuildingBoundaryDetection();
+
+
+            // New format already has the canonical polygon.
+
+            if (
+                boundary.Polygon.Count >= 3
             )
-            ?? new BuildingBoundaryDetection();
+            {
+                return boundary;
+            }
+
+
+            // Try old usablePolygon.
+
+            using var document =
+                JsonDocument.Parse(
+                    json
+                );
+
+
+            var root =
+                document.RootElement;
+
+
+            if (
+                TryGetPropertyIgnoreCase(
+                    root,
+                    "usablePolygon",
+                    out var usablePolygonElement
+                )
+            )
+            {
+                var legacyPolygon =
+                    usablePolygonElement.Deserialize<
+                        List<PixelPoint>
+                    >(
+                        BoundaryJsonOptions
+                    );
+
+
+                if (
+                    legacyPolygon != null
+                    &&
+                    legacyPolygon.Count > 0
+                )
+                {
+                    boundary.Polygon =
+                        legacyPolygon;
+                }
+            }
+
+
+            return boundary;
         }
         catch
         {
@@ -1107,6 +979,53 @@ public class FloorPlanRevisionService
     }
 
 
+   
+    private static bool TryGetPropertyIgnoreCase(
+        JsonElement element,
+        string propertyName,
+        out JsonElement value)
+    {
+        if (
+            element.ValueKind !=
+            JsonValueKind.Object
+        )
+        {
+            value =
+                default;
+
+            return false;
+        }
+
+
+        foreach (
+            var property
+            in element.EnumerateObject()
+        )
+        {
+            if (
+                string.Equals(
+                    property.Name,
+                    propertyName,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            {
+                value =
+                    property.Value;
+
+                return true;
+            }
+        }
+
+
+        value =
+            default;
+
+        return false;
+    }
+
+
+    
     private static bool PolygonsEqual(
         IReadOnlyList<PixelPoint> first,
         IReadOnlyList<PixelPoint> second)
@@ -1153,10 +1072,7 @@ public class FloorPlanRevisionService
     }
 
 
-    // =========================================================
-    // ROOM GEOMETRY NORMALIZATION
-    // =========================================================
-
+    
     private static void NormalizeRoomGeometry(
         IEnumerable<RoomDetection> rooms)
     {
@@ -1189,6 +1105,7 @@ public class FloorPlanRevisionService
     }
 
 
+    
     private static double PolygonSignedArea(
         IReadOnlyList<PixelPoint> polygon)
     {
@@ -1200,7 +1117,8 @@ public class FloorPlanRevisionService
         }
 
 
-        double twiceArea = 0;
+        double twiceArea =
+            0;
 
 
         for (
@@ -1210,7 +1128,8 @@ public class FloorPlanRevisionService
         )
         {
             var next =
-                (index + 1) %
+                (index + 1)
+                %
                 polygon.Count;
 
 
@@ -1227,6 +1146,7 @@ public class FloorPlanRevisionService
     }
 
 
+    
     private static PixelPoint PolygonCentroid(
         IReadOnlyList<PixelPoint> polygon)
     {
@@ -1241,27 +1161,34 @@ public class FloorPlanRevisionService
 
 
         if (
-            Math.Abs(signedArea) <=
-            tolerance
+            Math.Abs(
+                signedArea
+            )
+            <= tolerance
         )
         {
             return new PixelPoint
             {
                 X =
                     polygon.Average(
-                        point => point.X
+                        point =>
+                            point.X
                     ),
 
                 Y =
                     polygon.Average(
-                        point => point.Y
+                        point =>
+                            point.Y
                     )
             };
         }
 
 
-        double x = 0;
-        double y = 0;
+        double x =
+            0;
+
+        double y =
+            0;
 
 
         for (
@@ -1271,7 +1198,8 @@ public class FloorPlanRevisionService
         )
         {
             var next =
-                (index + 1) %
+                (index + 1)
+                %
                 polygon.Count;
 
 
@@ -1288,7 +1216,8 @@ public class FloorPlanRevisionService
                     polygon[index].X +
                     polygon[next].X
                 )
-                * factor;
+                *
+                factor;
 
 
             y +=
@@ -1296,32 +1225,28 @@ public class FloorPlanRevisionService
                     polygon[index].Y +
                     polygon[next].Y
                 )
-                * factor;
+                *
+                factor;
         }
 
 
         var divisor =
-            6.0 * signedArea;
+            6.0 *
+            signedArea;
 
 
         return new PixelPoint
         {
-            X = x / divisor,
-            Y = y / divisor
+            X =
+                x / divisor,
+
+            Y =
+                y / divisor
         };
     }
 
 
-    // =========================================================
-    // POLYGON CONTAINMENT
-    // =========================================================
-    //
-    // Checking only the vertices is not enough when outer is concave.
-    // An edge can connect two inside vertices while crossing outside.
-    // We therefore split every inner edge at every outer-boundary
-    // intersection and test the midpoint of every resulting segment.
-    // =========================================================
-
+   
     private static bool PolygonInsidePolygon(
         IReadOnlyList<PixelPoint> inner,
         IReadOnlyList<PixelPoint> outer)
@@ -1340,6 +1265,9 @@ public class FloorPlanRevisionService
         }
 
 
+        // Every room vertex must be inside or directly on the
+        // building boundary.
+
         foreach (
             var point
             in inner
@@ -1357,6 +1285,9 @@ public class FloorPlanRevisionService
         }
 
 
+        // Also make sure a room edge does not leave a concave
+        // building polygon between two valid vertices.
+
         for (
             var innerIndex = 0;
             innerIndex < inner.Count;
@@ -1364,15 +1295,20 @@ public class FloorPlanRevisionService
         )
         {
             var innerNext =
-                (innerIndex + 1) %
+                (innerIndex + 1)
+                %
                 inner.Count;
 
 
             var start =
-                inner[innerIndex];
+                inner[
+                    innerIndex
+                ];
 
             var end =
-                inner[innerNext];
+                inner[
+                    innerNext
+                ];
 
 
             var splits =
@@ -1390,15 +1326,20 @@ public class FloorPlanRevisionService
             )
             {
                 var outerNext =
-                    (outerIndex + 1) %
+                    (outerIndex + 1)
+                    %
                     outer.Count;
 
 
                 AddSegmentIntersectionParameters(
                     start,
                     end,
-                    outer[outerIndex],
-                    outer[outerNext],
+                    outer[
+                        outerIndex
+                    ],
+                    outer[
+                        outerNext
+                    ],
                     splits
                 );
             }
@@ -1407,10 +1348,13 @@ public class FloorPlanRevisionService
             splits =
                 splits
                     .OrderBy(
-                        value => value
+                        value =>
+                            value
                     )
+
                     .Aggregate(
                         new List<double>(),
+
                         (
                             unique,
                             value
@@ -1420,9 +1364,12 @@ public class FloorPlanRevisionService
                                 unique.Count == 0
                                 ||
                                 Math.Abs(
-                                    unique[^1] -
+                                    unique[^1]
+                                    -
                                     value
-                                ) > tolerance
+                                )
+                                >
+                                tolerance
                             )
                             {
                                 unique.Add(
@@ -1438,20 +1385,25 @@ public class FloorPlanRevisionService
 
             for (
                 var splitIndex = 0;
-                splitIndex < splits.Count - 1;
+                splitIndex <
+                    splits.Count - 1;
                 splitIndex++
             )
             {
                 var first =
-                    splits[splitIndex];
+                    splits[
+                        splitIndex
+                    ];
 
                 var second =
-                    splits[splitIndex + 1];
+                    splits[
+                        splitIndex + 1
+                    ];
 
 
                 if (
-                    second - first <=
-                    tolerance
+                    second - first
+                    <= tolerance
                 )
                 {
                     continue;
@@ -1462,25 +1414,33 @@ public class FloorPlanRevisionService
                     (
                         first +
                         second
-                    ) / 2.0;
+                    )
+                    /
+                    2.0;
 
 
                 var midpoint =
                     new PixelPoint
                     {
                         X =
-                            start.X +
+                            start.X
+                            +
                             (
                                 end.X -
                                 start.X
-                            ) * t,
+                            )
+                            *
+                            t,
 
                         Y =
-                            start.Y +
+                            start.Y
+                            +
                             (
                                 end.Y -
                                 start.Y
-                            ) * t
+                            )
+                            *
+                            t
                     };
 
 
@@ -1501,6 +1461,7 @@ public class FloorPlanRevisionService
     }
 
 
+    
     private static bool PointInPolygonInclusive(
         PixelPoint point,
         IReadOnlyList<PixelPoint> polygon)
@@ -1513,6 +1474,8 @@ public class FloorPlanRevisionService
         }
 
 
+        // Point exactly on an edge counts as inside.
+
         for (
             var index = 0;
             index < polygon.Count;
@@ -1520,15 +1483,20 @@ public class FloorPlanRevisionService
         )
         {
             var next =
-                (index + 1) %
+                (index + 1)
+                %
                 polygon.Count;
 
 
             if (
                 PointOnSegment(
                     point,
-                    polygon[index],
-                    polygon[next]
+                    polygon[
+                        index
+                    ],
+                    polygon[
+                        next
+                    ]
                 )
             )
             {
@@ -1543,16 +1511,23 @@ public class FloorPlanRevisionService
 
         for (
             int index = 0,
-            previous = polygon.Count - 1;
+                previous =
+                    polygon.Count - 1;
+
             index < polygon.Count;
+
             previous = index++
         )
         {
             var currentPoint =
-                polygon[index];
+                polygon[
+                    index
+                ];
 
             var previousPoint =
-                polygon[previous];
+                polygon[
+                    previous
+                ];
 
 
             var crossesRay =
@@ -1609,6 +1584,7 @@ public class FloorPlanRevisionService
     }
 
 
+    
     private static bool PointOnSegment(
         PixelPoint point,
         PixelPoint start,
@@ -1625,6 +1601,7 @@ public class FloorPlanRevisionService
         var dy =
             end.Y -
             start.Y;
+
 
         var px =
             point.X -
@@ -1649,8 +1626,10 @@ public class FloorPlanRevisionService
         var scale =
             Math.Max(
                 1.0,
+
                 Math.Sqrt(
-                    dx * dx +
+                    dx * dx
+                    +
                     dy * dy
                 )
             );
@@ -1658,7 +1637,8 @@ public class FloorPlanRevisionService
 
         if (
             area >
-            tolerance * scale
+            tolerance *
+            scale
         )
         {
             return false;
@@ -1693,6 +1673,7 @@ public class FloorPlanRevisionService
     }
 
 
+    
     private static void AddSegmentIntersectionParameters(
         PixelPoint firstStart,
         PixelPoint firstEnd,
@@ -1711,6 +1692,7 @@ public class FloorPlanRevisionService
         var ry =
             firstEnd.Y -
             firstStart.Y;
+
 
         var sx =
             secondEnd.X -
@@ -1748,8 +1730,13 @@ public class FloorPlanRevisionService
             );
 
 
+        // Non-parallel lines.
+
         if (
-            Math.Abs(denominator) >
+            Math.Abs(
+                denominator
+            )
+            >
             tolerance
         )
         {
@@ -1796,8 +1783,13 @@ public class FloorPlanRevisionService
         }
 
 
+       
+
         if (
-            Math.Abs(qpr) >
+            Math.Abs(
+                qpr
+            )
+            >
             tolerance
         )
         {
@@ -1805,7 +1797,8 @@ public class FloorPlanRevisionService
         }
 
 
-        // Collinear boundaries: split at overlapping endpoints.
+
+
         if (
             PointOnSegment(
                 secondStart,
@@ -1816,6 +1809,7 @@ public class FloorPlanRevisionService
         {
             AddSplitValue(
                 firstSplits,
+
                 ParameterOnSegment(
                     secondStart,
                     firstStart,
@@ -1835,6 +1829,7 @@ public class FloorPlanRevisionService
         {
             AddSplitValue(
                 firstSplits,
+
                 ParameterOnSegment(
                     secondEnd,
                     firstStart,
@@ -1843,6 +1838,7 @@ public class FloorPlanRevisionService
             );
         }
     }
+
 
 
     private static void AddSplitValue(
@@ -1856,6 +1852,7 @@ public class FloorPlanRevisionService
         var clamped =
             Math.Max(
                 0,
+
                 Math.Min(
                     1,
                     value
@@ -1869,7 +1866,9 @@ public class FloorPlanRevisionService
                     Math.Abs(
                         current -
                         clamped
-                    ) <= tolerance
+                    )
+                    <=
+                    tolerance
             )
         )
         {
@@ -1899,12 +1898,20 @@ public class FloorPlanRevisionService
 
 
         if (
-            Math.Abs(dx) >=
-            Math.Abs(dy)
+            Math.Abs(
+                dx
+            )
+            >=
+            Math.Abs(
+                dy
+            )
         )
         {
             if (
-                Math.Abs(dx) <=
+                Math.Abs(
+                    dx
+                )
+                <=
                 tolerance
             )
             {
@@ -1915,12 +1922,17 @@ public class FloorPlanRevisionService
             return (
                 point.X -
                 start.X
-            ) / dx;
+            )
+            /
+            dx;
         }
 
 
         if (
-            Math.Abs(dy) <=
+            Math.Abs(
+                dy
+            )
+            <=
             tolerance
         )
         {
@@ -1931,7 +1943,9 @@ public class FloorPlanRevisionService
         return (
             point.Y -
             start.Y
-        ) / dy;
+        )
+        /
+        dy;
     }
 
 
@@ -1942,14 +1956,13 @@ public class FloorPlanRevisionService
         double by)
     {
         return
-            ax * by -
+            ax * by
+            -
             ay * bx;
     }
 
 
-    // =========================================================
-    // UNIQUE IDS
-    // =========================================================
+
 
     private static void EnsureUniqueIds(
         IEnumerable<int> ids,
@@ -1970,10 +1983,6 @@ public class FloorPlanRevisionService
         }
     }
 
-
-    // =========================================================
-    // POLYGON VALIDATION
-    // =========================================================
 
     private static void ValidatePolygon(
         List<PixelPoint> polygon,
@@ -2035,7 +2044,9 @@ public class FloorPlanRevisionService
                 PolygonSignedArea(
                     polygon
                 )
-            ) <= 0.000001
+            )
+            <=
+            0.000001
         )
         {
             throw new InvalidOperationException(

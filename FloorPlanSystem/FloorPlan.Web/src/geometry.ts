@@ -3,16 +3,13 @@ import type {
   Room,
 } from "./types";
 
-
 const EPSILON = 1e-7;
 const MERGE_EPSILON = 1e-4;
-
 
 type Segment = {
   a: PixelPoint;
   b: PixelPoint;
 };
-
 
 function samePoint(
   first: PixelPoint,
@@ -25,7 +22,6 @@ function samePoint(
   );
 }
 
-
 function cross(
   ax: number,
   ay: number,
@@ -34,7 +30,6 @@ function cross(
 ): number {
   return ax * by - ay * bx;
 }
-
 
 function interpolate(
   start: PixelPoint,
@@ -47,16 +42,15 @@ function interpolate(
   };
 }
 
-
 function segmentLengthSquared(
   start: PixelPoint,
   end: PixelPoint
 ): number {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
+
   return dx * dx + dy * dy;
 }
-
 
 function pointOnSegment(
   point: PixelPoint,
@@ -66,74 +60,118 @@ function pointOnSegment(
 ): boolean {
   const dx = end.x - start.x;
   const dy = end.y - start.y;
+
   const px = point.x - start.x;
   const py = point.y - start.y;
 
   const area = Math.abs(
-    cross(dx, dy, px, py)
+    cross(
+      dx,
+      dy,
+      px,
+      py
+    )
   );
 
   const scale = Math.max(
     1,
-    Math.sqrt(dx * dx + dy * dy)
+    Math.sqrt(
+      dx * dx +
+      dy * dy
+    )
   );
 
-  if (area > tolerance * scale) {
+  if (
+    area >
+    tolerance * scale
+  ) {
     return false;
   }
 
   const dot =
-    (point.x - start.x) * (point.x - end.x) +
-    (point.y - start.y) * (point.y - end.y);
+    (point.x - start.x) *
+    (point.x - end.x) +
+    (point.y - start.y) *
+    (point.y - end.y);
 
-  return dot <= tolerance * tolerance;
+  return (
+    dot <=
+    tolerance *
+    tolerance
+  );
 }
-
 
 function parameterOnSegment(
   point: PixelPoint,
   start: PixelPoint,
   end: PixelPoint
 ): number {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
+  const dx =
+    end.x -
+    start.x;
 
-  if (Math.abs(dx) >= Math.abs(dy)) {
-    if (Math.abs(dx) <= EPSILON) {
+  const dy =
+    end.y -
+    start.y;
+
+  if (
+    Math.abs(dx) >=
+    Math.abs(dy)
+  ) {
+    if (
+      Math.abs(dx) <=
+      EPSILON
+    ) {
       return 0;
     }
 
-    return (point.x - start.x) / dx;
+    return (
+      point.x -
+      start.x
+    ) / dx;
   }
 
-  if (Math.abs(dy) <= EPSILON) {
+  if (
+    Math.abs(dy) <=
+    EPSILON
+  ) {
     return 0;
   }
 
-  return (point.y - start.y) / dy;
+  return (
+    point.y -
+    start.y
+  ) / dy;
 }
-
 
 function addSplitValue(
   values: number[],
   value: number
 ) {
-  const clamped = Math.max(
-    0,
-    Math.min(1, value)
-  );
+  const clamped =
+    Math.max(
+      0,
+      Math.min(
+        1,
+        value
+      )
+    );
 
   if (
     !values.some(
       current =>
-        Math.abs(current - clamped) <=
+        Math.abs(
+          current -
+          clamped
+        ) <=
         EPSILON
     )
   ) {
-    values.push(clamped);
+    values.push(
+      clamped
+    );
   }
 }
-
 
 function addEdgeIntersections(
   firstStart: PixelPoint,
@@ -143,35 +181,68 @@ function addEdgeIntersections(
   firstSplits: number[],
   secondSplits: number[]
 ) {
-  const rx = firstEnd.x - firstStart.x;
-  const ry = firstEnd.y - firstStart.y;
-  const sx = secondEnd.x - secondStart.x;
-  const sy = secondEnd.y - secondStart.y;
+  const rx =
+    firstEnd.x -
+    firstStart.x;
 
-  const qpx = secondStart.x - firstStart.x;
-  const qpy = secondStart.y - firstStart.y;
+  const ry =
+    firstEnd.y -
+    firstStart.y;
 
-  const denominator = cross(
-    rx,
-    ry,
-    sx,
-    sy
-  );
+  const sx =
+    secondEnd.x -
+    secondStart.x;
 
-  const qpr = cross(
-    qpx,
-    qpy,
-    rx,
-    ry
-  );
+  const sy =
+    secondEnd.y -
+    secondStart.y;
 
-  if (Math.abs(denominator) > EPSILON) {
+  const qpx =
+    secondStart.x -
+    firstStart.x;
+
+  const qpy =
+    secondStart.y -
+    firstStart.y;
+
+  const denominator =
+    cross(
+      rx,
+      ry,
+      sx,
+      sy
+    );
+
+  const qpr =
+    cross(
+      qpx,
+      qpy,
+      rx,
+      ry
+    );
+
+  if (
+    Math.abs(
+      denominator
+    ) >
+    EPSILON
+  ) {
     const t =
-      cross(qpx, qpy, sx, sy) /
+      cross(
+        qpx,
+        qpy,
+        sx,
+        sy
+      ) /
       denominator;
 
     const u =
-      cross(qpx, qpy, rx, ry) /
+      cross(
+        qpx,
+        qpy,
+        rx,
+        ry
+      ) /
       denominator;
 
     if (
@@ -194,12 +265,13 @@ function addEdgeIntersections(
     return;
   }
 
-  if (Math.abs(qpr) > EPSILON) {
+  if (
+    Math.abs(qpr) >
+    EPSILON
+  ) {
     return;
   }
 
-  // Collinear segments. Split at every endpoint that lies on the
-  // opposite segment so overlapping boundary pieces are preserved.
   if (
     pointOnSegment(
       secondStart,
@@ -269,16 +341,23 @@ function addEdgeIntersections(
   }
 }
 
-
 export function normalizePolygon(
   polygon: PixelPoint[]
 ): PixelPoint[] {
-  const result: PixelPoint[] = [];
+  const result:
+    PixelPoint[] = [];
 
-  for (const point of polygon) {
+  for (
+    const point
+    of polygon
+  ) {
     if (
-      !Number.isFinite(point.x) ||
-      !Number.isFinite(point.y)
+      !Number.isFinite(
+        point.x
+      ) ||
+      !Number.isFinite(
+        point.y
+      )
     ) {
       continue;
     }
@@ -289,41 +368,52 @@ export function normalizePolygon(
     };
 
     const previous =
-      result[result.length - 1];
+      result[
+        result.length - 1
+      ];
 
     if (
       previous &&
-      samePoint(previous, copy)
+      samePoint(
+        previous,
+        copy
+      )
     ) {
       continue;
     }
 
-    result.push(copy);
+    result.push(
+      copy
+    );
   }
 
   if (
     result.length > 1 &&
     samePoint(
       result[0],
-      result[result.length - 1]
+      result[
+        result.length - 1
+      ]
     )
   ) {
     result.pop();
   }
 
-  if (result.length < 3) {
+  if (
+    result.length < 3
+  ) {
     return result;
   }
 
-  // Remove points that are exactly on the straight segment between their
-  // neighbours. This keeps clipping output compact and easier to edit.
-  let changed = true;
+  let changed =
+    true;
 
   while (
     changed &&
     result.length > 3
   ) {
-    changed = false;
+    changed =
+      false;
 
     for (
       let index = 0;
@@ -332,16 +422,23 @@ export function normalizePolygon(
     ) {
       const previous =
         result[
-          (index - 1 + result.length) %
+          (
+            index - 1 +
+            result.length
+          ) %
           result.length
         ];
 
       const current =
-        result[index];
+        result[
+          index
+        ];
 
       const next =
         result[
-          (index + 1) %
+          (
+            index + 1
+          ) %
           result.length
         ];
 
@@ -352,8 +449,14 @@ export function normalizePolygon(
           next
         )
       ) {
-        result.splice(index, 1);
-        changed = true;
+        result.splice(
+          index,
+          1
+        );
+
+        changed =
+          true;
+
         break;
       }
     }
@@ -362,15 +465,17 @@ export function normalizePolygon(
   return result;
 }
 
-
 export function polygonSignedArea(
   polygon: PixelPoint[]
 ): number {
-  if (polygon.length < 3) {
+  if (
+    polygon.length < 3
+  ) {
     return 0;
   }
 
-  let twiceArea = 0;
+  let twiceArea =
+    0;
 
   for (
     let index = 0;
@@ -378,30 +483,41 @@ export function polygonSignedArea(
     index++
   ) {
     const next =
-      (index + 1) % polygon.length;
+      (
+        index + 1
+      ) %
+      polygon.length;
 
     twiceArea +=
-      polygon[index].x * polygon[next].y -
-      polygon[next].x * polygon[index].y;
+      polygon[index].x *
+      polygon[next].y
+      -
+      polygon[next].x *
+      polygon[index].y;
   }
 
-  return twiceArea / 2;
+  return (
+    twiceArea /
+    2
+  );
 }
-
 
 export function polygonArea(
   polygon: PixelPoint[]
 ): number {
   return Math.abs(
-    polygonSignedArea(polygon)
+    polygonSignedArea(
+      polygon
+    )
   );
 }
-
 
 export function polygonCentroid(
   polygon: PixelPoint[]
 ): PixelPoint {
-  if (polygon.length === 0) {
+  if (
+    polygon.length === 0
+  ) {
     return {
       x: 0,
       y: 0,
@@ -409,23 +525,45 @@ export function polygonCentroid(
   }
 
   const signedArea =
-    polygonSignedArea(polygon);
-
-  if (Math.abs(signedArea) <= EPSILON) {
-    const total = polygon.reduce(
-      (sum, point) => ({
-        x: sum.x + point.x,
-        y: sum.y + point.y,
-      }),
-      {
-        x: 0,
-        y: 0,
-      }
+    polygonSignedArea(
+      polygon
     );
 
+  if (
+    Math.abs(
+      signedArea
+    ) <=
+    EPSILON
+  ) {
+    const total =
+      polygon.reduce(
+        (
+          sum,
+          point
+        ) => ({
+          x:
+            sum.x +
+            point.x,
+
+          y:
+            sum.y +
+            point.y,
+        }),
+
+        {
+          x: 0,
+          y: 0,
+        }
+      );
+
     return {
-      x: total.x / polygon.length,
-      y: total.y / polygon.length,
+      x:
+        total.x /
+        polygon.length,
+
+      y:
+        total.y /
+        polygon.length,
     };
   }
 
@@ -438,36 +576,55 @@ export function polygonCentroid(
     index++
   ) {
     const next =
-      (index + 1) % polygon.length;
+      (
+        index + 1
+      ) %
+      polygon.length;
 
     const factor =
-      polygon[index].x * polygon[next].y -
-      polygon[next].x * polygon[index].y;
+      polygon[index].x *
+      polygon[next].y
+      -
+      polygon[next].x *
+      polygon[index].y;
 
     x +=
-      (polygon[index].x + polygon[next].x) *
+      (
+        polygon[index].x +
+        polygon[next].x
+      ) *
       factor;
 
     y +=
-      (polygon[index].y + polygon[next].y) *
+      (
+        polygon[index].y +
+        polygon[next].y
+      ) *
       factor;
   }
 
   const divisor =
-    6 * signedArea;
+    6 *
+    signedArea;
 
   return {
-    x: x / divisor,
-    y: y / divisor,
+    x:
+      x /
+      divisor,
+
+    y:
+      y /
+      divisor,
   };
 }
-
 
 export function pointInPolygonInclusive(
   point: PixelPoint,
   polygon: PixelPoint[]
 ): boolean {
-  if (polygon.length < 3) {
+  if (
+    polygon.length < 3
+  ) {
     return false;
   }
 
@@ -477,7 +634,10 @@ export function pointInPolygonInclusive(
     index++
   ) {
     const next =
-      (index + 1) % polygon.length;
+      (
+        index + 1
+      ) %
+      polygon.length;
 
     if (
       pointOnSegment(
@@ -490,12 +650,16 @@ export function pointInPolygonInclusive(
     }
   }
 
-  let inside = false;
+  let inside =
+    false;
 
   for (
     let index = 0,
-    previous = polygon.length - 1;
+      previous =
+        polygon.length - 1;
+
     index < polygon.length;
+
     previous = index++
   ) {
     const currentPoint =
@@ -506,38 +670,61 @@ export function pointInPolygonInclusive(
 
     const crossesRay =
       (
-        currentPoint.y > point.y
-      ) !== (
-        previousPoint.y > point.y
+        currentPoint.y >
+        point.y
+      )
+      !==
+      (
+        previousPoint.y >
+        point.y
       );
 
-    if (!crossesRay) {
+    if (
+      !crossesRay
+    ) {
       continue;
     }
 
     const xAtY =
       (
-        (previousPoint.x - currentPoint.x) *
-        (point.y - currentPoint.y)
-      ) /
-      (previousPoint.y - currentPoint.y) +
+        (
+          previousPoint.x -
+          currentPoint.x
+        ) *
+        (
+          point.y -
+          currentPoint.y
+        )
+      )
+      /
+      (
+        previousPoint.y -
+        currentPoint.y
+      )
+      +
       currentPoint.x;
 
-    if (point.x < xAtY) {
-      inside = !inside;
+    if (
+      point.x <
+      xAtY
+    ) {
+      inside =
+        !inside;
     }
   }
 
   return inside;
 }
 
-
 function splitValuesForEdgeAgainstPolygon(
   start: PixelPoint,
   end: PixelPoint,
   polygon: PixelPoint[]
 ): number[] {
-  const splits = [0, 1];
+  const splits = [
+    0,
+    1,
+  ];
 
   for (
     let index = 0;
@@ -545,9 +732,15 @@ function splitValuesForEdgeAgainstPolygon(
     index++
   ) {
     const next =
-      (index + 1) % polygon.length;
+      (
+        index + 1
+      ) %
+      polygon.length;
 
-    const otherSplits = [0, 1];
+    const otherSplits = [
+      0,
+      1,
+    ];
 
     addEdgeIntersections(
       start,
@@ -560,20 +753,28 @@ function splitValuesForEdgeAgainstPolygon(
   }
 
   return splits.sort(
-    (first, second) => first - second
+    (
+      first,
+      second
+    ) =>
+      first -
+      second
   );
 }
-
 
 export function polygonInsidePolygon(
   inner: PixelPoint[],
   outer: PixelPoint[]
 ): boolean {
   const normalizedInner =
-    normalizePolygon(inner);
+    normalizePolygon(
+      inner
+    );
 
   const normalizedOuter =
-    normalizePolygon(outer);
+    normalizePolygon(
+      outer
+    );
 
   if (
     normalizedInner.length < 3 ||
@@ -582,7 +783,10 @@ export function polygonInsidePolygon(
     return false;
   }
 
-  for (const point of normalizedInner) {
+  for (
+    const point
+    of normalizedInner
+  ) {
     if (
       !pointInPolygonInclusive(
         point,
@@ -593,22 +797,26 @@ export function polygonInsidePolygon(
     }
   }
 
-  // Vertex-only checks are not enough for a concave outer polygon. An edge
-  // can connect two inside vertices while crossing an outside bay. Split each
-  // inner edge at every boundary intersection and test every resulting piece.
   for (
     let index = 0;
     index < normalizedInner.length;
     index++
   ) {
     const next =
-      (index + 1) % normalizedInner.length;
+      (
+        index + 1
+      ) %
+      normalizedInner.length;
 
     const start =
-      normalizedInner[index];
+      normalizedInner[
+        index
+      ];
 
     const end =
-      normalizedInner[next];
+      normalizedInner[
+        next
+      ];
 
     const splits =
       splitValuesForEdgeAgainstPolygon(
@@ -619,14 +827,23 @@ export function polygonInsidePolygon(
 
     for (
       let splitIndex = 0;
-      splitIndex < splits.length - 1;
+      splitIndex <
+        splits.length - 1;
       splitIndex++
     ) {
-      const first = splits[splitIndex];
-      const second = splits[splitIndex + 1];
+      const first =
+        splits[
+          splitIndex
+        ];
+
+      const second =
+        splits[
+          splitIndex + 1
+        ];
 
       if (
-        second - first <= EPSILON
+        second - first <=
+        EPSILON
       ) {
         continue;
       }
@@ -635,7 +852,11 @@ export function polygonInsidePolygon(
         interpolate(
           start,
           end,
-          (first + second) / 2
+          (
+            first +
+            second
+          ) /
+          2
         );
 
       if (
@@ -652,20 +873,28 @@ export function polygonInsidePolygon(
   return true;
 }
 
-
 function pointKey(
   point: PixelPoint
 ): string {
-  return `${Math.round(point.x / MERGE_EPSILON)}:${Math.round(point.y / MERGE_EPSILON)}`;
+  return (
+    `${Math.round(
+      point.x /
+      MERGE_EPSILON
+    )}:` +
+    `${Math.round(
+      point.y /
+      MERGE_EPSILON
+    )}`
+  );
 }
-
 
 function buildBoundarySegments(
   source: PixelPoint[],
   clip: PixelPoint[],
   sourceSplits: number[][]
 ): Segment[] {
-  const segments: Segment[] = [];
+  const segments:
+    Segment[] = [];
 
   for (
     let index = 0;
@@ -673,27 +902,49 @@ function buildBoundarySegments(
     index++
   ) {
     const next =
-      (index + 1) % source.length;
+      (
+        index + 1
+      ) %
+      source.length;
 
-    const start = source[index];
-    const end = source[next];
+    const start =
+      source[index];
+
+    const end =
+      source[next];
 
     const splits = [
-      ...sourceSplits[index],
+      ...sourceSplits[
+        index
+      ],
     ].sort(
-      (first, second) => first - second
+      (
+        first,
+        second
+      ) =>
+        first -
+        second
     );
 
     for (
       let splitIndex = 0;
-      splitIndex < splits.length - 1;
+      splitIndex <
+        splits.length - 1;
       splitIndex++
     ) {
-      const first = splits[splitIndex];
-      const second = splits[splitIndex + 1];
+      const first =
+        splits[
+          splitIndex
+        ];
+
+      const second =
+        splits[
+          splitIndex + 1
+        ];
 
       if (
-        second - first <= EPSILON
+        second - first <=
+        EPSILON
       ) {
         continue;
       }
@@ -713,14 +964,22 @@ function buildBoundarySegments(
         );
 
       if (
-        segmentLengthSquared(a, b) <=
-        EPSILON * EPSILON
+        segmentLengthSquared(
+          a,
+          b
+        ) <=
+        EPSILON *
+        EPSILON
       ) {
         continue;
       }
 
       const midpoint =
-        interpolate(a, b, 0.5);
+        interpolate(
+          a,
+          b,
+          0.5
+        );
 
       if (
         pointInPolygonInclusive(
@@ -728,7 +987,10 @@ function buildBoundarySegments(
           clip
         )
       ) {
-        segments.push({ a, b });
+        segments.push({
+          a,
+          b,
+        });
       }
     }
   }
@@ -736,111 +998,192 @@ function buildBoundarySegments(
   return segments;
 }
 
-
 function uniqueSegments(
   segments: Segment[]
 ): Segment[] {
   const seen =
     new Set<string>();
 
-  const result: Segment[] = [];
+  const result:
+    Segment[] = [];
 
-  for (const segment of segments) {
+  for (
+    const segment
+    of segments
+  ) {
     const firstKey =
-      pointKey(segment.a);
+      pointKey(
+        segment.a
+      );
 
     const secondKey =
-      pointKey(segment.b);
+      pointKey(
+        segment.b
+      );
 
-    if (firstKey === secondKey) {
+    if (
+      firstKey ===
+      secondKey
+    ) {
       continue;
     }
 
     const edgeKey =
-      firstKey < secondKey
+      firstKey <
+      secondKey
+
         ? `${firstKey}|${secondKey}`
+
         : `${secondKey}|${firstKey}`;
 
-    if (seen.has(edgeKey)) {
+    if (
+      seen.has(
+        edgeKey
+      )
+    ) {
       continue;
     }
 
-    seen.add(edgeKey);
-    result.push(segment);
+    seen.add(
+      edgeKey
+    );
+
+    result.push(
+      segment
+    );
   }
 
   return result;
 }
 
-
 function segmentsToPolygons(
   segments: Segment[]
 ): PixelPoint[][] {
   const unique =
-    uniqueSegments(segments);
+    uniqueSegments(
+      segments
+    );
 
-  if (unique.length === 0) {
+  if (
+    unique.length === 0
+  ) {
     return [];
   }
 
   const vertices =
-    new Map<string, PixelPoint>();
+    new Map<
+      string,
+      PixelPoint
+    >();
 
   const adjacency =
-    new Map<string, number[]>();
+    new Map<
+      string,
+      number[]
+    >();
 
-  const edges = unique.map(
-    segment => {
-      const aKey = pointKey(segment.a);
-      const bKey = pointKey(segment.b);
+  const edges =
+    unique.map(
+      segment => {
+        const aKey =
+          pointKey(
+            segment.a
+          );
 
-      if (!vertices.has(aKey)) {
-        vertices.set(aKey, segment.a);
+        const bKey =
+          pointKey(
+            segment.b
+          );
+
+        if (
+          !vertices.has(
+            aKey
+          )
+        ) {
+          vertices.set(
+            aKey,
+            segment.a
+          );
+        }
+
+        if (
+          !vertices.has(
+            bKey
+          )
+        ) {
+          vertices.set(
+            bKey,
+            segment.b
+          );
+        }
+
+        return {
+          aKey,
+          bKey,
+        };
       }
-
-      if (!vertices.has(bKey)) {
-        vertices.set(bKey, segment.b);
-      }
-
-      return {
-        aKey,
-        bKey,
-      };
-    }
-  );
+    );
 
   edges.forEach(
-    (edge, edgeIndex) => {
+    (
+      edge,
+      edgeIndex
+    ) => {
       const aList =
-        adjacency.get(edge.aKey) ?? [];
+        adjacency.get(
+          edge.aKey
+        )
+        ?? [];
 
-      aList.push(edgeIndex);
-      adjacency.set(edge.aKey, aList);
+      aList.push(
+        edgeIndex
+      );
+
+      adjacency.set(
+        edge.aKey,
+        aList
+      );
 
       const bList =
-        adjacency.get(edge.bKey) ?? [];
+        adjacency.get(
+          edge.bKey
+        )
+        ?? [];
 
-      bList.push(edgeIndex);
-      adjacency.set(edge.bKey, bList);
+      bList.push(
+        edgeIndex
+      );
+
+      adjacency.set(
+        edge.bKey,
+        bList
+      );
     }
   );
 
   const used =
     new Set<number>();
 
-  const polygons: PixelPoint[][] = [];
+  const polygons:
+    PixelPoint[][] = [];
 
   for (
     let startEdgeIndex = 0;
     startEdgeIndex < edges.length;
     startEdgeIndex++
   ) {
-    if (used.has(startEdgeIndex)) {
+    if (
+      used.has(
+        startEdgeIndex
+      )
+    ) {
       continue;
     }
 
     const startEdge =
-      edges[startEdgeIndex];
+      edges[
+        startEdgeIndex
+      ];
 
     const startKey =
       startEdge.aKey;
@@ -856,54 +1199,77 @@ function segmentsToPolygons(
       currentKey,
     ];
 
-    used.add(startEdgeIndex);
+    used.add(
+      startEdgeIndex
+    );
 
     let closed =
-      currentKey === startKey;
+      currentKey ===
+      startKey;
 
-    let guard = 0;
+    let guard =
+      0;
 
     while (
       !closed &&
-      guard < edges.length * 4
+      guard <
+        edges.length * 4
     ) {
       guard++;
 
       const candidateEdges =
-        (adjacency.get(currentKey) ?? [])
-          .filter(
-            edgeIndex =>
-              !used.has(edgeIndex)
-          );
+        (
+          adjacency.get(
+            currentKey
+          )
+          ?? []
+        ).filter(
+          edgeIndex =>
+            !used.has(
+              edgeIndex
+            )
+        );
 
-      if (candidateEdges.length === 0) {
+      if (
+        candidateEdges.length ===
+        0
+      ) {
         break;
       }
 
       let chosenEdgeIndex =
         candidateEdges[0];
 
-      if (candidateEdges.length > 1) {
-        // Prefer continuing to a new vertex rather than immediately
-        // backtracking. In valid simple polygon intersections each boundary
-        // vertex normally has degree 2, so this only handles touch cases.
+      if (
+        candidateEdges.length >
+        1
+      ) {
         const nonBacktracking =
           candidateEdges.find(
             edgeIndex => {
               const edge =
-                edges[edgeIndex];
+                edges[
+                  edgeIndex
+                ];
 
               const otherKey =
-                edge.aKey === currentKey
+                edge.aKey ===
+                currentKey
+
                   ? edge.bKey
+
                   : edge.aKey;
 
-              return otherKey !== previousKey;
+              return (
+                otherKey !==
+                previousKey
+              );
             }
           );
 
         if (
-          nonBacktracking !== undefined
+          nonBacktracking !==
+          undefined
         ) {
           chosenEdgeIndex =
             nonBacktracking;
@@ -911,61 +1277,96 @@ function segmentsToPolygons(
       }
 
       const chosen =
-        edges[chosenEdgeIndex];
+        edges[
+          chosenEdgeIndex
+        ];
 
       const nextKey =
-        chosen.aKey === currentKey
+        chosen.aKey ===
+        currentKey
+
           ? chosen.bKey
+
           : chosen.aKey;
 
-      used.add(chosenEdgeIndex);
+      used.add(
+        chosenEdgeIndex
+      );
 
-      previousKey = currentKey;
-      currentKey = nextKey;
+      previousKey =
+        currentKey;
 
-      if (currentKey === startKey) {
-        closed = true;
+      currentKey =
+        nextKey;
+
+      if (
+        currentKey ===
+        startKey
+      ) {
+        closed =
+          true;
+
         break;
       }
 
-      pathKeys.push(currentKey);
+      pathKeys.push(
+        currentKey
+      );
     }
 
-    if (!closed) {
+    if (
+      !closed
+    ) {
       continue;
     }
 
     const polygon =
       normalizePolygon(
         pathKeys
-          .map(key => vertices.get(key))
+          .map(
+            key =>
+              vertices.get(
+                key
+              )
+          )
           .filter(
-            (point): point is PixelPoint =>
-              point !== undefined
+            (
+              point
+            ): point is PixelPoint =>
+              point !==
+              undefined
           )
       );
 
     if (
       polygon.length >= 3 &&
-      polygonArea(polygon) > EPSILON
+      polygonArea(
+        polygon
+      ) >
+      EPSILON
     ) {
-      polygons.push(polygon);
+      polygons.push(
+        polygon
+      );
     }
   }
 
   return polygons;
 }
 
-
 export function intersectPolygons(
   firstPolygon: PixelPoint[],
   secondPolygon: PixelPoint[]
 ): PixelPoint[][] {
   const first =
-    normalizePolygon(firstPolygon);
+    normalizePolygon(
+      firstPolygon
+    );
 
   const second =
-    normalizePolygon(secondPolygon);
+    normalizePolygon(
+      secondPolygon
+    );
 
   if (
     first.length < 3 ||
@@ -975,10 +1376,20 @@ export function intersectPolygons(
   }
 
   const firstSplits =
-    first.map(() => [0, 1]);
+    first.map(
+      () => [
+        0,
+        1,
+      ]
+    );
 
   const secondSplits =
-    second.map(() => [0, 1]);
+    second.map(
+      () => [
+        0,
+        1,
+      ]
+    );
 
   for (
     let firstIndex = 0;
@@ -986,7 +1397,10 @@ export function intersectPolygons(
     firstIndex++
   ) {
     const firstNext =
-      (firstIndex + 1) % first.length;
+      (
+        firstIndex + 1
+      ) %
+      first.length;
 
     for (
       let secondIndex = 0;
@@ -994,15 +1408,35 @@ export function intersectPolygons(
       secondIndex++
     ) {
       const secondNext =
-        (secondIndex + 1) % second.length;
+        (
+          secondIndex + 1
+        ) %
+        second.length;
 
       addEdgeIntersections(
-        first[firstIndex],
-        first[firstNext],
-        second[secondIndex],
-        second[secondNext],
-        firstSplits[firstIndex],
-        secondSplits[secondIndex]
+        first[
+          firstIndex
+        ],
+
+        first[
+          firstNext
+        ],
+
+        second[
+          secondIndex
+        ],
+
+        second[
+          secondNext
+        ],
+
+        firstSplits[
+          firstIndex
+        ],
+
+        secondSplits[
+          secondIndex
+        ]
       );
     }
   }
@@ -1013,6 +1447,7 @@ export function intersectPolygons(
       second,
       firstSplits
     ),
+
     ...buildBoundarySegments(
       second,
       first,
@@ -1021,20 +1456,25 @@ export function intersectPolygons(
   ];
 
   const polygons =
-    segmentsToPolygons(segments);
+    segmentsToPolygons(
+      segments
+    );
 
-  if (polygons.length > 0) {
+  if (
+    polygons.length > 0
+  ) {
     return polygons;
   }
 
-  // Fallbacks for pure containment without boundary intersections.
   if (
     polygonInsidePolygon(
       first,
       second
     )
   ) {
-    return [first];
+    return [
+      first,
+    ];
   }
 
   if (
@@ -1043,12 +1483,13 @@ export function intersectPolygons(
       first
     )
   ) {
-    return [second];
+    return [
+      second,
+    ];
   }
 
   return [];
 }
-
 
 export function clipPolygonToPolygon(
   subject: PixelPoint[],
@@ -1060,46 +1501,70 @@ export function clipPolygonToPolygon(
       clip
     );
 
-  if (intersections.length === 0) {
+  if (
+    intersections.length ===
+    0
+  ) {
     return null;
   }
 
   return intersections.reduce(
-    (largest, polygon) =>
-      polygonArea(polygon) >
-      polygonArea(largest)
+    (
+      largest,
+      polygon
+    ) =>
+      polygonArea(
+        polygon
+      ) >
+      polygonArea(
+        largest
+      )
+
         ? polygon
+
         : largest
   );
 }
-
 
 export function roomWithPolygon(
   room: Room,
   polygon: PixelPoint[]
 ): Room {
   const normalized =
-    normalizePolygon(polygon);
+    normalizePolygon(
+      polygon
+    );
 
   return {
     ...room,
-    polygon: normalized,
+
+    polygon:
+      normalized,
+
     centroid:
-      polygonCentroid(normalized),
+      polygonCentroid(
+        normalized
+      ),
+
     areaPixels:
-      polygonArea(normalized),
+      polygonArea(
+        normalized
+      ),
   };
 }
 
-
-export function constrainRoomToUsableBoundary(
+export function constrainRoomToBoundary(
   room: Room,
-  usablePolygon: PixelPoint[]
+  boundaryPolygon: PixelPoint[]
 ): Room {
-  const normalizedUsable =
-    normalizePolygon(usablePolygon);
+  const boundary =
+    normalizePolygon(
+      boundaryPolygon
+    );
 
-  if (normalizedUsable.length < 3) {
+  if (
+    boundary.length < 3
+  ) {
     return roomWithPolygon(
       room,
       room.polygon
@@ -1109,7 +1574,7 @@ export function constrainRoomToUsableBoundary(
   if (
     polygonInsidePolygon(
       room.polygon,
-      normalizedUsable
+      boundary
     )
   ) {
     return roomWithPolygon(
@@ -1121,15 +1586,16 @@ export function constrainRoomToUsableBoundary(
   const clipped =
     clipPolygonToPolygon(
       room.polygon,
-      normalizedUsable
+      boundary
     );
 
-  // A completely outside room is intentionally kept instead of silently
-  // deleting it. Save validation will flag it so the user can fix/redraw it.
   if (
     !clipped ||
     clipped.length < 3 ||
-    polygonArea(clipped) <= EPSILON
+    polygonArea(
+      clipped
+    ) <=
+    EPSILON
   ) {
     return roomWithPolygon(
       room,

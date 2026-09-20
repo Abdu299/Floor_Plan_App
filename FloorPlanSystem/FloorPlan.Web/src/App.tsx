@@ -22,7 +22,6 @@ import {
 } from "./api";
 
 import type {
-  BoundaryKind,
   BoundingBox,
   FloorPlan,
   PixelPoint,
@@ -35,7 +34,7 @@ import FloorPlanCanvas, {
 
 import {
   clipPolygonToPolygon,
-  constrainRoomToUsableBoundary,
+  constrainRoomToBoundary,
   normalizePolygon,
   polygonArea,
   polygonCentroid,
@@ -185,11 +184,8 @@ interface SaveValidation {
   allRoomsHaveArea:
     boolean;
 
-  roomsOutsideUsableBoundary:
+  roomsOutsideBoundary:
     Room[];
-
-  usableBoundaryInsideOuter:
-    boolean;
 
   geometryValid:
     boolean;
@@ -463,59 +459,31 @@ function validateForSave(
   const boundary =
     floorPlan.revision.buildingBoundary;
 
-  const outerPolygon =
+  const boundaryPolygon =
     normalizePolygon(
-      boundary.outerPolygon
+      boundary.polygon
     );
 
-  const usablePolygon =
-    normalizePolygon(
-      boundary.usablePolygon
-    );
-
-  const usableBoundaryInsideOuter =
-    outerPolygon.length < 3
-    ||
-    usablePolygon.length < 3
-    ||
-    polygonInsidePolygon(
-      usablePolygon,
-      outerPolygon
-    );
-
-  const roomsOutsideUsableBoundary =
-    usablePolygon.length >= 3
+  const roomsOutsideBoundary =
+    boundaryPolygon.length >= 3
       ? rooms.filter(
           room =>
             !polygonInsidePolygon(
               room.polygon,
-              usablePolygon
+              boundaryPolygon
             )
         )
       : [];
 
   const malformedBoundary =
-    (
-      outerPolygon.length > 0 &&
-      outerPolygon.length < 3
-    )
-    ||
-    (
-      usablePolygon.length > 0 &&
-      usablePolygon.length < 3
-    )
-    ||
-    (
-      (outerPolygon.length >= 3) !==
-      (usablePolygon.length >= 3)
-    );
+    boundaryPolygon.length > 0
+    &&
+    boundaryPolygon.length < 3;
 
   const geometryValid =
     !malformedBoundary
     &&
-    usableBoundaryInsideOuter
-    &&
-    roomsOutsideUsableBoundary.length === 0;
+    roomsOutsideBoundary.length === 0;
 
 
   // =======================================================
@@ -598,16 +566,7 @@ function validateForSave(
   if (malformedBoundary) {
 
     issues.push(
-      "The building boundary must contain both a valid outer polygon and a valid usable polygon."
-    );
-
-  }
-
-
-  if (!usableBoundaryInsideOuter) {
-
-    issues.push(
-      "The usable boundary must stay inside the outer boundary."
+      "The building boundary must contain a valid polygon."
     );
 
   }
@@ -615,11 +574,11 @@ function validateForSave(
 
   for (
     const room
-    of roomsOutsideUsableBoundary
+    of roomsOutsideBoundary
   ) {
 
     issues.push(
-      `Room ${room.id} – ${room.name} is outside the usable building boundary.`
+      `Room ${room.id} – ${room.name} is outside the building boundary.`
     );
 
   }
@@ -648,9 +607,7 @@ function validateForSave(
 
     allRoomsHaveArea,
 
-    roomsOutsideUsableBoundary,
-
-    usableBoundaryInsideOuter,
+    roomsOutsideBoundary,
 
     geometryValid,
 
@@ -736,18 +693,14 @@ function AnalyzePage() {
     boundaryEditMode,
     setBoundaryEditMode,
   ] =
-    useState<BoundaryKind | null>(
-      null
-    );
+    useState(false);
 
 
   const [
     boundaryDrawMode,
     setBoundaryDrawMode,
   ] =
-    useState<BoundaryKind | null>(
-      null
-    );
+    useState(false);
 
 
   const [
@@ -873,12 +826,12 @@ function AnalyzePage() {
 
 
           setBoundaryEditMode(
-            null
+            false
           );
 
 
           setBoundaryDrawMode(
-            null
+            false
           );
 
 
@@ -978,12 +931,12 @@ function AnalyzePage() {
 
 
           setBoundaryEditMode(
-            null
+            false
           );
 
 
           setBoundaryDrawMode(
-            null
+            false
           );
 
 
@@ -1153,12 +1106,12 @@ function AnalyzePage() {
 
 
     setBoundaryEditMode(
-      null
+      false
     );
 
 
     setBoundaryDrawMode(
-      null
+      false
     );
 
 
@@ -1466,12 +1419,12 @@ function AnalyzePage() {
 
 
       setBoundaryEditMode(
-        null
+        false
       );
 
 
       setBoundaryDrawMode(
-        null
+        false
       );
 
 
@@ -1541,10 +1494,7 @@ function AnalyzePage() {
   // whether the automatic result was valid=true or valid=false.
   // =========================================================
 
-  function startBoundaryDraw(
-    kind:
-      BoundaryKind
-  ) {
+  function startBoundaryDraw() {
 
     if (!floorPlan) {
       return;
@@ -1567,7 +1517,7 @@ function AnalyzePage() {
 
 
     setBoundaryEditMode(
-      null
+      false
     );
 
 
@@ -1592,16 +1542,13 @@ function AnalyzePage() {
     );
 
 
-    // IMPORTANT:
-    // Do not delete or change the current JSON polygon yet.
-    // The old polygon remains safe until the user presses Finish.
     setBoundaryDraftPoints(
       []
     );
 
 
     setBoundaryDrawMode(
-      kind
+      true
     );
 
   }
@@ -1637,7 +1584,6 @@ function AnalyzePage() {
             last.y;
 
 
-          // Avoid accidental duplicate points from the same click/tap.
           if (
             Math.sqrt(
               dx * dx +
@@ -1681,10 +1627,8 @@ function AnalyzePage() {
 
   function cancelBoundaryDraw() {
 
-    // Because drawing uses a separate draft, cancelling does not
-    // modify the current boundary stored in floorPlan / JSON.
     setBoundaryDrawMode(
-      null
+      false
     );
 
 
@@ -1720,10 +1664,6 @@ function AnalyzePage() {
     }
 
 
-    const kind =
-      boundaryDrawMode;
-
-
     const finishedPolygon =
       boundaryDraftPoints.map(
         point => ({
@@ -1736,18 +1676,14 @@ function AnalyzePage() {
       );
 
 
-    // This is the moment the current JSON geometry is replaced.
-    // updateBoundaryPolygon also records source=user,
-    // reviewStatus=edited and isUserEdited=true.
     updateBoundaryPolygon(
-      kind,
       () =>
         finishedPolygon
     );
 
 
     setBoundaryDrawMode(
-      null
+      false
     );
 
 
@@ -1756,18 +1692,14 @@ function AnalyzePage() {
     );
 
 
-    // Keep the freshly created polygon editable immediately.
     setBoundaryEditMode(
-      kind
+      true
     );
 
   }
 
 
   function updateBoundaryPolygon(
-    kind:
-      BoundaryKind,
-
     update: (
       polygon: PixelPoint[]
     ) => PixelPoint[]
@@ -1797,66 +1729,21 @@ function AnalyzePage() {
             .buildingBoundary;
 
 
-        const currentPolygon =
-          kind === "outer"
-            ? boundary.outerPolygon
-            : boundary.usablePolygon;
-
-
         const nextPolygon =
           normalizePolygon(
             update(
-              currentPolygon
+              boundary.polygon
             )
           );
 
 
-        let nextOuter =
-          kind === "outer"
-            ? nextPolygon
-            : normalizePolygon(
-                boundary.outerPolygon
-              );
-
-
-        let nextUsable =
-          kind === "usable"
-            ? nextPolygon
-            : normalizePolygon(
-                boundary.usablePolygon
-              );
-
-
-        // Keep usableBoundary inside outerBoundary. If the edited outer
-        // boundary becomes smaller, the usable polygon is clipped at the
-        // same time. This is geometry-only work; no AI detector is rerun.
-        if (
-          nextOuter.length >= 3 &&
-          nextUsable.length >= 3 &&
-          !polygonInsidePolygon(
-            nextUsable,
-            nextOuter
-          )
-        ) {
-          nextUsable =
-            clipPolygonToPolygon(
-              nextUsable,
-              nextOuter
-            )
-            ?? [];
-        }
-
-
-        // Rooms are children of usableBoundary. Partially outside rooms are
-        // clipped automatically. A room with no overlap is intentionally
-        // kept so validation can show it instead of silently deleting it.
         const rooms =
-          nextUsable.length >= 3
+          nextPolygon.length >= 3
             ? current.revision.rooms.map(
                 room =>
-                  constrainRoomToUsableBoundary(
+                  constrainRoomToBoundary(
                     room,
-                    nextUsable
+                    nextPolygon
                   )
               )
             : current.revision.rooms;
@@ -1873,14 +1760,9 @@ function AnalyzePage() {
             buildingBoundary: {
               ...boundary,
 
-              outerPolygon:
-                nextOuter,
+              polygon:
+                nextPolygon,
 
-              usablePolygon:
-                nextUsable,
-
-              // Current geometry is now user-authored.
-              // The original automaticAssessment is preserved.
               source:
                 "user",
 
@@ -1900,9 +1782,6 @@ function AnalyzePage() {
 
 
   function moveBoundaryPoint(
-    kind:
-      BoundaryKind,
-
     pointIndex:
       number,
 
@@ -1911,8 +1790,6 @@ function AnalyzePage() {
   ) {
 
     updateBoundaryPolygon(
-      kind,
-
       polygon =>
         polygon.map(
           (
@@ -1929,9 +1806,6 @@ function AnalyzePage() {
 
 
   function insertBoundaryPoint(
-    kind:
-      BoundaryKind,
-
     insertAfterIndex:
       number,
 
@@ -1940,8 +1814,6 @@ function AnalyzePage() {
   ) {
 
     updateBoundaryPolygon(
-      kind,
-
       polygon => {
 
         const copy =
@@ -1964,16 +1836,11 @@ function AnalyzePage() {
 
 
   function deleteBoundaryPoint(
-    kind:
-      BoundaryKind,
-
     pointIndex:
       number
   ) {
 
     updateBoundaryPolygon(
-      kind,
-
       polygon => {
 
         if (
@@ -1997,10 +1864,7 @@ function AnalyzePage() {
   }
 
 
-  function toggleBoundaryEdit(
-    kind:
-      BoundaryKind
-  ) {
+  function toggleBoundaryEdit() {
 
     if (!floorPlan) {
       return;
@@ -2008,16 +1872,10 @@ function AnalyzePage() {
 
 
     const polygon =
-      kind === "outer"
-        ? floorPlan
-            .revision
-            .buildingBoundary
-            .outerPolygon
-
-        : floorPlan
-            .revision
-            .buildingBoundary
-            .usablePolygon;
+      floorPlan
+        .revision
+        .buildingBoundary
+        .polygon;
 
 
     if (
@@ -2025,7 +1883,7 @@ function AnalyzePage() {
     ) {
 
       setError(
-        `The ${kind} boundary does not contain a polygon to edit yet.`
+        "The building boundary does not contain a polygon to edit yet."
       );
 
 
@@ -2049,7 +1907,7 @@ function AnalyzePage() {
 
 
     setBoundaryDrawMode(
-      null
+      false
     );
 
 
@@ -2081,9 +1939,7 @@ function AnalyzePage() {
 
     setBoundaryEditMode(
       current =>
-        current === kind
-          ? null
-          : kind
+        !current
     );
 
   }
@@ -2174,12 +2030,12 @@ function AnalyzePage() {
         }
 
 
-        const usablePolygon =
+        const boundaryPolygon =
           normalizePolygon(
             current
               .revision
               .buildingBoundary
-              .usablePolygon
+              .polygon
           );
 
 
@@ -2220,10 +2076,10 @@ function AnalyzePage() {
 
 
                     if (
-                      usablePolygon.length < 3 ||
+                      boundaryPolygon.length < 3 ||
                       polygonInsidePolygon(
                         candidate,
-                        usablePolygon
+                        boundaryPolygon
                       )
                     ) {
                       return roomWithPolygon(
@@ -2236,7 +2092,7 @@ function AnalyzePage() {
                     const clipped =
                       clipPolygonToPolygon(
                         candidate,
-                        usablePolygon
+                        boundaryPolygon
                       );
 
 
@@ -2410,12 +2266,12 @@ function AnalyzePage() {
 
 
     setBoundaryEditMode(
-      null
+      false
     );
 
 
     setBoundaryDrawMode(
-      null
+      false
     );
 
 
@@ -2491,12 +2347,12 @@ function AnalyzePage() {
 
 
     setBoundaryEditMode(
-      null
+      false
     );
 
 
     setBoundaryDrawMode(
-      null
+      false
     );
 
 
@@ -2808,12 +2664,12 @@ function AnalyzePage() {
         );
 
 
-      const usablePolygon =
+      const boundaryPolygon =
         normalizePolygon(
           floorPlan
             .revision
             .buildingBoundary
-            .usablePolygon
+            .polygon
         );
 
 
@@ -2824,16 +2680,16 @@ function AnalyzePage() {
 
 
       if (
-        usablePolygon.length >= 3 &&
+        boundaryPolygon.length >= 3 &&
         !polygonInsidePolygon(
           roomPolygon,
-          usablePolygon
+          boundaryPolygon
         )
       ) {
         const clipped =
           clipPolygonToPolygon(
             roomPolygon,
-            usablePolygon
+            boundaryPolygon
           );
 
 
@@ -2843,7 +2699,7 @@ function AnalyzePage() {
           polygonArea(clipped) <= 0.000001
         ) {
           setError(
-            "The new room must overlap the usable building boundary."
+            "The new room must overlap the building boundary."
           );
 
           return;
@@ -3294,12 +3150,12 @@ function AnalyzePage() {
           type === "room"
         ) {
 
-          const usablePolygon =
+          const boundaryPolygon =
             normalizePolygon(
               current
                 .revision
                 .buildingBoundary
-                .usablePolygon
+                .polygon
             );
 
 
@@ -3343,10 +3199,10 @@ function AnalyzePage() {
 
 
                       return (
-                        usablePolygon.length >= 3
-                          ? constrainRoomToUsableBoundary(
+                        boundaryPolygon.length >= 3
+                          ? constrainRoomToBoundary(
                               moved,
-                              usablePolygon
+                              boundaryPolygon
                             )
                           : moved
                       );
@@ -4731,9 +4587,7 @@ function AnalyzePage() {
                           }
                         >
 
-                          Finish {
-                            boundaryDrawMode
-                          } boundary
+                          Finish boundary
 
                         </button>
 
@@ -4776,13 +4630,7 @@ function AnalyzePage() {
 
                       <div className="boundary-edit-instruction">
 
-                        Drawing{" "}
-                        <strong>
-                          {
-                            boundaryDrawMode
-                          }
-                        </strong>
-                        {" "}boundary: click around the building in order.
+                        Drawing boundary: click around the usable interior space in order.
                         {" "}
                         {
                           boundaryDraftPoints.length
@@ -4809,30 +4657,27 @@ function AnalyzePage() {
                           floorPlan
                             .revision
                             .buildingBoundary
-                            .outerPolygon
+                            .polygon
                             .length >= 3 && (
 
                               <button
                                 type="button"
 
                                 className={
-                                  boundaryEditMode === "outer"
+                                  boundaryEditMode
                                     ? "boundary-button active"
                                     : "boundary-button"
                                 }
 
                                 onClick={
-                                  () =>
-                                    toggleBoundaryEdit(
-                                      "outer"
-                                    )
+                                  toggleBoundaryEdit
                                 }
                               >
 
                                 {
-                                  boundaryEditMode === "outer"
-                                    ? "Stop editing outer"
-                                    : "Edit outer boundary"
+                                  boundaryEditMode
+                                    ? "Stop editing boundary"
+                                    : "Edit boundary"
                                 }
 
                               </button>
@@ -4847,10 +4692,7 @@ function AnalyzePage() {
                           className="boundary-button"
 
                           onClick={
-                            () =>
-                              startBoundaryDraw(
-                                "outer"
-                              )
+                            startBoundaryDraw
                           }
                         >
 
@@ -4858,72 +4700,10 @@ function AnalyzePage() {
                             floorPlan
                               .revision
                               .buildingBoundary
-                              .outerPolygon
+                              .polygon
                               .length >= 3
-                              ? "Redraw outer boundary"
-                              : "Draw outer boundary"
-                          }
-
-                        </button>
-
-
-                        {
-                          floorPlan
-                            .revision
-                            .buildingBoundary
-                            .usablePolygon
-                            .length >= 3 && (
-
-                              <button
-                                type="button"
-
-                                className={
-                                  boundaryEditMode === "usable"
-                                    ? "boundary-button active"
-                                    : "boundary-button"
-                                }
-
-                                onClick={
-                                  () =>
-                                    toggleBoundaryEdit(
-                                      "usable"
-                                    )
-                                }
-                              >
-
-                                {
-                                  boundaryEditMode === "usable"
-                                    ? "Stop editing usable"
-                                    : "Edit usable boundary"
-                                }
-
-                              </button>
-
-                            )
-                        }
-
-
-                        <button
-                          type="button"
-
-                          className="boundary-button"
-
-                          onClick={
-                            () =>
-                              startBoundaryDraw(
-                                "usable"
-                              )
-                          }
-                        >
-
-                          {
-                            floorPlan
-                              .revision
-                              .buildingBoundary
-                              .usablePolygon
-                              .length >= 3
-                              ? "Redraw usable boundary"
-                              : "Draw usable boundary"
+                              ? "Redraw boundary"
+                              : "Draw boundary"
                           }
 
                         </button>
@@ -4938,13 +4718,7 @@ function AnalyzePage() {
                             floorPlan
                               .revision
                               .buildingBoundary
-                              .outerPolygon
-                              .length < 3
-                            ||
-                            floorPlan
-                              .revision
-                              .buildingBoundary
-                              .usablePolygon
+                              .polygon
                               .length < 3
                           }
 
@@ -4965,13 +4739,7 @@ function AnalyzePage() {
 
                           <div className="boundary-edit-instruction">
 
-                            Editing{" "}
-                            <strong>
-                              {
-                                boundaryEditMode
-                              }
-                            </strong>
-                            {" "}boundary: drag a point to move it.
+                            Editing boundary: drag a point to move it.
                             Double-click a boundary line to add a point.
                             Double-click a point to remove it.
 
@@ -5298,7 +5066,7 @@ function AnalyzePage() {
 
                         {" "}
 
-                        Room shapes are inside the usable boundary
+                        Room shapes are inside the building boundary
 
                       </div>
 
@@ -5391,7 +5159,7 @@ function AnalyzePage() {
                   disabled={
                     saving
                     ||
-                    boundaryDrawMode !== null
+                    boundaryDrawMode
                     ||
                     !saveValidation
                     ||
@@ -5505,18 +5273,9 @@ function AnalyzePage() {
 
                 <div>
 
-                  <span className="legend-color boundary-outer-color" />
-
-                  Outer boundary
-
-                </div>
-
-
-                <div>
-
                   <span className="legend-color boundary-usable-color" />
 
-                  Usable boundary
+                  Building boundary
 
                 </div>
 
@@ -5912,7 +5671,7 @@ function AnalyzePage() {
                                           Drag a green point to move it.
                                           Double-click a room edge to add a point.
                                           Double-click a point to delete it.
-                                          The room is clipped automatically to the usable boundary.
+                                          The room is clipped automatically to the building boundary.
                                         </div>
 
                                       )
@@ -5926,7 +5685,7 @@ function AnalyzePage() {
 
                           {
                             saveValidation
-                              ?.roomsOutsideUsableBoundary
+                              ?.roomsOutsideBoundary
                               .some(
                                 room =>
                                   room.id === selectedRoom.id
@@ -5939,7 +5698,7 @@ function AnalyzePage() {
                                     fontWeight: 700,
                                   }}
                                 >
-                                  This room is outside the usable boundary. Edit or redraw it before saving.
+                                  This room is outside the building boundary. Edit or redraw it before saving.
                                 </small>
 
                               )

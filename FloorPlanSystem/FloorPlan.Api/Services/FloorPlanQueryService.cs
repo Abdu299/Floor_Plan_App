@@ -25,9 +25,7 @@ public class FloorPlanQueryService
     }
 
 
-    // =========================================================
-    // GET ALL SAVED FLOOR PLANS
-    // =========================================================
+
 
     public async Task<List<FloorPlanListItemResponse>>
         GetFloorPlansAsync(
@@ -178,9 +176,7 @@ public class FloorPlanQueryService
     }
 
 
-    // =========================================================
-    // GET FLOOR PLAN + LATEST REVISION
-    // =========================================================
+
 
     public async Task<FloorPlanResponse?>
         GetFloorPlanAsync(
@@ -270,9 +266,7 @@ public class FloorPlanQueryService
     }
 
 
-    // =========================================================
-    // GET SPECIFIC REVISION
-    // =========================================================
+
 
     public async Task<FloorPlanResponse?>
         GetRevisionAsync(
@@ -339,9 +333,7 @@ public class FloorPlanQueryService
     }
 
 
-    // =========================================================
-    // GET REVISION HISTORY
-    // =========================================================
+
 
     public async Task<List<FloorPlanRevisionSummaryResponse>>
         GetRevisionHistoryAsync(
@@ -395,9 +387,6 @@ public class FloorPlanQueryService
     }
 
 
-    // =========================================================
-    // INTERNAL REVISION LOADER
-    // =========================================================
 
     private async Task<FloorPlanRevisionResponse?>
         GetRevisionInternalAsync(
@@ -468,9 +457,7 @@ public class FloorPlanQueryService
         }
 
 
-        // =====================================================
-        // ROOMS
-        // =====================================================
+
 
         var rooms =
             revision.Rooms
@@ -518,9 +505,7 @@ public class FloorPlanQueryService
                 .ToList();
 
 
-        // =====================================================
-        // DOORS
-        // =====================================================
+
 
         var doors =
             revision.Doors
@@ -587,9 +572,7 @@ public class FloorPlanQueryService
                 .ToList();
 
 
-        // =====================================================
-        // WINDOWS
-        // =====================================================
+
 
         var windows =
             revision.Windows
@@ -623,9 +606,7 @@ public class FloorPlanQueryService
                 .ToList();
 
 
-        // =====================================================
-        // OPENINGS
-        // =====================================================
+
 
         var openings =
             revision.Openings
@@ -685,6 +666,8 @@ public class FloorPlanQueryService
                 )
 
                 .ToList();
+
+
 
 
         return new FloorPlanRevisionResponse
@@ -755,6 +738,9 @@ public class FloorPlanQueryService
             Openings =
                 openings,
 
+
+
+
             BuildingBoundary =
                 DeserializeBuildingBoundary(
                     revision.BuildingBoundaryJson
@@ -763,9 +749,7 @@ public class FloorPlanQueryService
     }
 
 
-    // =========================================================
-    // DESERIALIZE BUILDING BOUNDARY
-    // =========================================================
+
 
     private static BuildingBoundaryDetection
         DeserializeBuildingBoundary(
@@ -783,26 +767,106 @@ public class FloorPlanQueryService
 
         try
         {
-            return JsonSerializer.Deserialize<
-                BuildingBoundaryDetection
-            >(
-                json,
-                BoundaryJsonOptions
+     
+
+
+            var boundary =
+                JsonSerializer.Deserialize<
+                    BuildingBoundaryDetection
+                >(
+                    json,
+                    BoundaryJsonOptions
+                )
+                ?? new BuildingBoundaryDetection();
+
+
+
+            if (
+                boundary.Polygon.Count >= 3
             )
-            ?? new BuildingBoundaryDetection();
+            {
+                return boundary;
+            }
+
+
+   
+
+            using var document =
+                JsonDocument.Parse(
+                    json
+                );
+
+
+            var root =
+                document.RootElement;
+
+
+            if (
+                TryGetPropertyIgnoreCase(
+                    root,
+                    "usablePolygon",
+                    out var usablePolygonElement
+                )
+            )
+            {
+                var legacyUsablePolygon =
+                    usablePolygonElement.Deserialize<
+                        List<PixelPoint>
+                    >(
+                        BoundaryJsonOptions
+                    );
+
+
+                if (
+                    legacyUsablePolygon != null
+                    &&
+                    legacyUsablePolygon.Count > 0
+                )
+                {
+                    boundary.Polygon =
+                        legacyUsablePolygon;
+                }
+            }
+
+
+            return boundary;
         }
         catch
         {
-            // Old revisions or malformed historic data should still load.
+            // Historic malformed data must not make the whole
+            // floor-plan endpoint fail.
+            //
+            // Return an empty editable boundary instead.
+
             return new BuildingBoundaryDetection
             {
+                Polygon =
+                    [],
+
+                Source =
+                    "ai",
+
+                ReviewStatus =
+                    "unreviewed",
+
+                IsUserEdited =
+                    false,
+
                 AutomaticAssessment =
                     new BoundaryAutomaticAssessment
                     {
-                        Valid = false,
-                        RequiresReview = true,
-                        Method = "hybrid",
-                        CandidateSource = "none",
+                        Valid =
+                            false,
+
+                        RequiresReview =
+                            true,
+
+                        Method =
+                            "hybrid",
+
+                        CandidateSource =
+                            "none",
+
                         Message =
                             "Stored building-boundary JSON could not be read."
                     }
@@ -811,9 +875,53 @@ public class FloorPlanQueryService
     }
 
 
-    // =========================================================
-    // DESERIALIZE POLYGON
-    // =========================================================
+
+    private static bool TryGetPropertyIgnoreCase(
+        JsonElement element,
+        string propertyName,
+        out JsonElement value)
+    {
+        if (
+            element.ValueKind !=
+            JsonValueKind.Object
+        )
+        {
+            value =
+                default;
+
+            return false;
+        }
+
+
+        foreach (
+            var property
+            in element.EnumerateObject()
+        )
+        {
+            if (
+                string.Equals(
+                    property.Name,
+                    propertyName,
+                    StringComparison.OrdinalIgnoreCase
+                )
+            )
+            {
+                value =
+                    property.Value;
+
+                return true;
+            }
+        }
+
+
+        value =
+            default;
+
+        return false;
+    }
+
+
+
 
     private static List<PixelPoint>
         DeserializePolygon(
@@ -840,10 +948,6 @@ public class FloorPlanQueryService
         }
     }
 
-
-    // =========================================================
-    // CREATE BOUNDING BOX
-    // =========================================================
 
     private static BoundingBox?
         CreateBoundingBox(

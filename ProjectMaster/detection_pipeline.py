@@ -33,8 +33,6 @@ class DetectionPipeline:
         self.room_conf = room_conf
         self.object_conf = object_conf
 
-        #print("Loading MMDetection model...")
-
         # Load Cascade/MMDetection only ONCE.
         self.cascade_detector = CascadeDetector(
             confidence_threshold=self.detection_conf
@@ -47,16 +45,10 @@ class DetectionPipeline:
             room_conf=self.room_conf
         )
 
-        # The hybrid boundary detector has no heavy ML model of its own.
-        # It combines the room polygons, thick-wall mask, and optional
-        # door/window hints.
+ 
         self.boundary_detector = HybridBoundaryDetector()
 
-        #print("Detection pipeline ready.")
 
-    # ---------------------------------------------------------
-    # Geometry helper methods
-    # ---------------------------------------------------------
 
     @staticmethod
     def _polygon_to_points(poly):
@@ -71,6 +63,8 @@ class DetectionPipeline:
             {"x": 400, "y": 500},
             {"x": 100, "y": 500}
         ]
+
+        All coordinates are ORIGINAL IMAGE PIXELS.
         """
 
         if poly is None:
@@ -79,15 +73,21 @@ class DetectionPipeline:
         if poly.is_empty:
             return []
 
-        # Just in case a MultiPolygon appears.
+
         if poly.geom_type == "MultiPolygon":
-            poly = max(poly.geoms, key=lambda p: p.area)
+            poly = max(
+                poly.geoms,
+                key=lambda p: p.area
+            )
 
-        coordinates = list(poly.exterior.coords)
+        coordinates = list(
+            poly.exterior.coords
+        )
 
-        # Shapely normally repeats the first coordinate at the end.
-        # We do not need the duplicate for the frontend/database.
-        if len(coordinates) > 1 and coordinates[0] == coordinates[-1]:
+        if (
+            len(coordinates) > 1
+            and coordinates[0] == coordinates[-1]
+        ):
             coordinates = coordinates[:-1]
 
         return [
@@ -130,39 +130,53 @@ class DetectionPipeline:
             "roomPoly",
             "doorPoly",
             "door_poly",
-            "openingPoly", 
+            "openingPoly",
             "poly"
         ]
 
         for attribute in possible_attributes:
 
             if hasattr(obj, attribute):
-                return getattr(obj, attribute)
+                return getattr(
+                    obj,
+                    attribute
+                )
 
         return None
+
 
     @staticmethod
     def _empty_boundary_data(message):
         """
-        Boundary detection must never destroy the rest of a successful
-        floor-plan detection.
+        Return the canonical application boundary when automatic
+        boundary detection fails.
 
-        Even if boundary reconstruction fails, the JSON contract remains
-        stable and the frontend can still let the user draw/correct it.
+        IMPORTANT:
+        The application now has ONLY ONE building boundary.
+
+        buildingBoundary.polygon means:
+
+            the usable interior floor envelope
+
+        Everything outside this polygon is outside the optimization
+        domain and cannot contain room geometry.
+
+        Boundary failure remains non-fatal. Rooms, doors, windows
+        and openings can still be returned and the frontend can
+        let the user draw the boundary manually.
         """
-        return {
-            "outerPolygon": [],
-            "usablePolygon": [],
 
-            # This describes the CURRENT geometry stored in this revision.
-            # Revision 1 starts as AI-generated. The frontend/API can later
-            # change this to "user" when the user edits the boundary.
+        return {
+            "polygon": [],
+
+
             "source": "ai",
+
             "reviewStatus": "unreviewed",
+
             "isUserEdited": False,
 
-            # AutomaticAssessment is provenance/quality information from the
-            # detector. It does NOT make the boundary read-only.
+
             "automaticAssessment": {
                 "valid": False,
                 "requiresReview": True,
@@ -173,21 +187,42 @@ class DetectionPipeline:
                 "roomAreaCoverage": 0.0,
                 "roomCentroidCoverage": 0.0,
                 "wallSupport": 0.0,
+
                 "selectedStructuralGapPixels": 0,
+
                 "estimatedWallThicknessPixels": 0.0
             }
         }
 
-    def _boundary_to_data(self, boundary_result):
+    def _boundary_to_data(
+        self,
+        boundary_result
+    ):
         """
-        Convert HybridBoundaryDetectionResult to the canonical JSON shape.
+        Convert HybridBoundaryDetectionResult into the canonical
+        boundary JSON used by the rest of the application.
 
-        IMPORTANT:
-        - outerPolygon and usablePolygon are the actual geometry.
-        - valid=False only means the automatic result is not trusted enough.
-        - The user is allowed to edit the geometry whether valid is True
-          or False.
-        - Debug raster masks are deliberately NOT stored in JSON.
+        The HybridBoundaryDetector may internally calculate:
+
+            outer_boundary
+            usable_boundary
+            building_mask
+            usable_mask
+            outer wall information
+
+        That is useful detector/debug information.
+
+        But the APPLICATION only needs:
+
+            buildingBoundary.polygon
+
+        where polygon == the usable interior floor envelope.
+
+        Therefore outer_boundary is deliberately NOT exposed in the
+        application JSON anymore.
+
+        Everything outside buildingBoundary.polygon is outside the
+        editable/optimizable floor-plan domain.
         """
 
         if boundary_result is None:
@@ -195,11 +230,9 @@ class DetectionPipeline:
                 "Boundary detector returned no result."
             )
 
-        outer_polygon = self._polygon_to_points(
-            boundary_result.outer_boundary
-        )
 
-        usable_polygon = self._polygon_to_points(
+
+        polygon = self._polygon_to_points(
             boundary_result.usable_boundary
         )
 
@@ -207,19 +240,22 @@ class DetectionPipeline:
             boundary_result.valid
         )
 
-        # A result can be provisional (valid=False) and still contain useful
-        # geometry. We preserve that geometry instead of throwing it away.
+
         return {
-            "outerPolygon": outer_polygon,
-            "usablePolygon": usable_polygon,
+            "polygon": polygon,
 
             "source": "ai",
+
             "reviewStatus": "unreviewed",
+
             "isUserEdited": False,
 
             "automaticAssessment": {
                 "valid": automatic_valid,
-                "requiresReview": not automatic_valid,
+
+                "requiresReview":
+                    not automatic_valid,
+
                 "method": "hybrid",
 
                 "candidateSource": str(
@@ -280,11 +316,11 @@ class DetectionPipeline:
             }
         }
 
-    # ---------------------------------------------------------
-    # Convert detection objects into structured data
-    # ---------------------------------------------------------
 
-    def _rooms_to_data(self, rooms):
+    def _rooms_to_data(
+        self,
+        rooms
+    ):
 
         room_data = []
 
@@ -297,81 +333,132 @@ class DetectionPipeline:
             room_data.append({
                 "id": int(room.id),
 
-                 
-
                 "name": room.text,
 
-                "polygon": self._polygon_to_points(poly),
+                "polygon":
+                    self._polygon_to_points(
+                        poly
+                    ),
 
                 "centroid": {
-                    "x": float(centroid[0]),
-                    "y": float(centroid[1])
+                    "x": float(
+                        centroid[0]
+                    ),
+                    "y": float(
+                        centroid[1]
+                    )
                 },
 
-                "areaPixels": float(poly.area),
+                "areaPixels":
+                    float(poly.area),
 
-                # Some current Room objects do not preserve
-                # detection confidence yet.
-                "confidence": float(  room.confidence),
+
+                "confidence":
+                    float(
+                        room.confidence
+                    ),
             })
 
         return room_data
 
-    def _doors_to_data(self, doors):
+    def _doors_to_data(
+        self,
+        doors
+    ):
 
         door_data = []
 
         for door in doors:
 
-            poly = self._get_object_polygon(door)
+            poly = self._get_object_polygon(
+                door
+            )
 
             door_data.append({
-                "id": int(door.id),
+                "id":
+                    int(door.id),
 
-                "polygon": self._polygon_to_points(poly),
+                "polygon":
+                    self._polygon_to_points(
+                        poly
+                    ),
 
-                "bbox": self._polygon_to_bbox(poly),
+                "bbox":
+                    self._polygon_to_bbox(
+                        poly
+                    ),
 
                 "room1": {
-                    "id": int(door.room1.id),
-                    "name": door.room1.text
+                    "id":
+                        int(
+                            door.room1.id
+                        ),
+
+                    "name":
+                        door.room1.text
                 },
 
                 # room2 can be None for an exterior door.
-                # In the JSON response, Python None becomes JSON null.
+                # Python None becomes JSON null.
                 "room2": (
                     {
-                        "id": int(door.room2.id),
-                        "name": door.room2.text
+                        "id":
+                            int(
+                                door.room2.id
+                            ),
+
+                        "name":
+                            door.room2.text
                     }
+
                     if door.room2 is not None
+
                     else None
                 ),
 
-                "confidence": getattr(door, "confidence", None)
+                "confidence":
+                    getattr(
+                        door,
+                        "confidence",
+                        None
+                    )
             })
 
         return door_data
 
-    def _windows_to_data(self, windows):
+    def _windows_to_data(
+        self,
+        windows
+    ):
 
         window_data = []
 
-        for index, window in enumerate(windows, start=1):
+        for index, window in enumerate(
+            windows,
+            start=1
+        ):
 
             window_data.append({
-                "id": index,
+                "id":
+                    index,
 
-                "polygon": self._polygon_to_points(window),
+                "polygon":
+                    self._polygon_to_points(
+                        window
+                    ),
 
-                "bbox": self._polygon_to_bbox(window),
-
-                
+                "bbox":
+                    self._polygon_to_bbox(
+                        window
+                    ),
             })
 
         return window_data
 
-    def _openings_to_data(self, openings):
+    def _openings_to_data(
+        self,
+        openings
+    ):
 
         opening_data = []
 
@@ -380,28 +467,45 @@ class DetectionPipeline:
             poly = opening.openingPoly
 
             opening_data.append({
-                "id": int(opening.id),
+                "id":
+                    int(
+                        opening.id
+                    ),
 
-                "polygon": self._polygon_to_points(poly),
+                "polygon":
+                    self._polygon_to_points(
+                        poly
+                    ),
 
-                "bbox": self._polygon_to_bbox(poly),
+                "bbox":
+                    self._polygon_to_bbox(
+                        poly
+                    ),
 
                 "room1": {
-                    "id": int(opening.room1.id),
-                    "name": opening.room1.text
+                    "id":
+                        int(
+                            opening.room1.id
+                        ),
+
+                    "name":
+                        opening.room1.text
                 },
 
                 "room2": {
-                    "id": int(opening.room2.id),
-                    "name": opening.room2.text
+                    "id":
+                        int(
+                            opening.room2.id
+                        ),
+
+                    "name":
+                        opening.room2.text
                 }
             })
 
         return opening_data
 
-    # ---------------------------------------------------------
-    # Main detection method
-    # ---------------------------------------------------------
+
 
     def analyze_floor_plan(
         self,
@@ -421,35 +525,41 @@ class DetectionPipeline:
                 OpenCV image containing the visual detections.
         """
 
-        if not os.path.exists(image_path):
+        if not os.path.exists(
+            image_path
+        ):
             raise FileNotFoundError(
                 f"Image does not exist: {image_path}"
             )
 
-        original_img = cv2.imread(image_path)
+        original_img = cv2.imread(
+            image_path
+        )
 
         if original_img is None:
             raise ValueError(
                 f"Could not read image: {image_path}"
             )
 
-        image_height, image_width = original_img.shape[:2]
+        image_height, image_width = (
+            original_img.shape[:2]
+        )
 
-        image_name = os.path.basename(image_path)
-
-        # -----------------------------------------------------
-        # 1. Detect rooms
-        # -----------------------------------------------------
-
-        rooms, img_print = self.room_detector.returnRoom(
+        image_name = os.path.basename(
             image_path
+        )
+
+
+
+        rooms, img_print = (
+            self.room_detector
+                .returnRoom(
+                    image_path
+                )
         )
 
         rooms = rooms or []
 
-        # -----------------------------------------------------
-        # 2. Detect doors and windows
-        # -----------------------------------------------------
 
         detection_result = object_detect(
             "Door",
@@ -468,24 +578,31 @@ class DetectionPipeline:
 
         else:
 
-            doors, img_print, windows = detection_result
+            (
+                doors,
+                img_print,
+                windows
+            ) = detection_result
 
             doors = doors or []
             windows = windows or []
 
-        # -----------------------------------------------------
-        # 3. Create thick wall mask
-        # -----------------------------------------------------
+
 
         temporary_wall_file = False
 
         if wall_output_path is None:
 
-            file_descriptor, wall_output_path = tempfile.mkstemp(
+            (
+                file_descriptor,
+                wall_output_path
+            ) = tempfile.mkstemp(
                 suffix="_walls.png"
             )
 
-            os.close(file_descriptor)
+            os.close(
+                file_descriptor
+            )
 
             temporary_wall_file = True
 
@@ -498,72 +615,92 @@ class DetectionPipeline:
             min_length=40
         )
 
-        # If no permanent wall output was requested,
-        # remove the temporary image file.
         if temporary_wall_file:
 
             try:
-                os.remove(wall_output_path)
+                os.remove(
+                    wall_output_path
+                )
 
             except OSError:
                 pass
 
-        # -----------------------------------------------------
-        # 4. Detect building boundary
-        # -----------------------------------------------------
-        #
-        # Boundary failure is intentionally NON-FATAL.
-        #
-        # The floor plan, rooms, doors and windows are still valuable even
-        # when the boundary is uncertain. In that case we return a stable
-        # buildingBoundary object with automaticAssessment.valid=False so the
-        # frontend can show it for review/manual editing.
-        # -----------------------------------------------------
+   
 
         try:
-            boundary_result = self.boundary_detector.detect(
-                rooms=rooms,
-                image_shape=original_img.shape,
-                thick_wall_mask=wall_mask,
-                doors=doors,
-                windows=windows,
-                mode="ai"
+
+            boundary_result = (
+                self.boundary_detector
+                    .detect(
+                        rooms=rooms,
+
+                        image_shape=
+                            original_img.shape,
+
+                        thick_wall_mask=
+                            wall_mask,
+
+                        doors=doors,
+
+                        windows=windows,
+
+                        mode="ai"
+                    )
             )
 
-            boundary_data = self._boundary_to_data(
-                boundary_result
+            boundary_data = (
+                self._boundary_to_data(
+                    boundary_result
+                )
             )
 
         except Exception as boundary_error:
-            boundary_data = self._empty_boundary_data(
-                f"Boundary detection failed: {boundary_error}"
+
+            boundary_data = (
+                self._empty_boundary_data(
+                    "Boundary detection failed: "
+                    f"{boundary_error}"
+                )
             )
 
-        # -----------------------------------------------------
-        # 5. Detect extra openings
-        # -----------------------------------------------------
+
 
         openings, img_print = opening_detect(
-            thick_lines_img=wall_mask,
-            draw_image=img_print,
-            rooms=rooms,
-            doors=doors,
-            windows=windows,
+            thick_lines_img=
+                wall_mask,
+
+            draw_image=
+                img_print,
+
+            rooms=
+                rooms,
+
+            doors=
+                doors,
+
+            windows=
+                windows,
+
             min_opening_len=25,
+
             max_opening_len=180,
+
             wall_strip=10,
+
             corner_margin=12,
+
             support_len=10,
+
             exclude_distance=10,
+
             room_connect_distance=10,
+
             duplicate_distance=10
         ).detect()
 
         openings = openings or []
 
-        # -----------------------------------------------------
-        # 6. Create FloorPlan
-        # -----------------------------------------------------
+
 
         floor_plan = FloorPlan(
             rooms,
@@ -572,47 +709,95 @@ class DetectionPipeline:
             openings
         )
 
-        # -----------------------------------------------------
-        # 7. Convert Python objects to structured data
-        # -----------------------------------------------------
+
 
         result = {
 
-            "type": "floor_plan",
+            "type":
+                "floor_plan",
 
             "image": {
-                "fileName": image_name,
-                "widthPixels": int(image_width),
-                "heightPixels": int(image_height)
+                "fileName":
+                    image_name,
+
+                "widthPixels":
+                    int(
+                        image_width
+                    ),
+
+                "heightPixels":
+                    int(
+                        image_height
+                    )
             },
 
             "validation": {
-                "valid": bool(floor_plan.valid),
-                "hasBathroom": bool(floor_plan.has_bathroom),
-                "hasKitchen": bool(floor_plan.has_kitchen)
+                "valid":
+                    bool(
+                        floor_plan.valid
+                    ),
+
+                "hasBathroom":
+                    bool(
+                        floor_plan
+                            .has_bathroom
+                    ),
+
+                "hasKitchen":
+                    bool(
+                        floor_plan
+                            .has_kitchen
+                    )
             },
 
             "summary": {
-                "rooms": len(rooms),
-                "doors": len(doors),
-                "windows": len(windows),
-                "openings": len(openings)
+                "rooms":
+                    len(
+                        rooms
+                    ),
+
+                "doors":
+                    len(
+                        doors
+                    ),
+
+                "windows":
+                    len(
+                        windows
+                    ),
+
+                "openings":
+                    len(
+                        openings
+                    )
             },
 
-            "rooms": self._rooms_to_data(rooms),
+            "rooms":
+                self._rooms_to_data(
+                    rooms
+                ),
 
-            "doors": self._doors_to_data(doors),
+            "doors":
+                self._doors_to_data(
+                    doors
+                ),
 
-            "windows": self._windows_to_data(windows),
+            "windows":
+                self._windows_to_data(
+                    windows
+                ),
 
-            "openings": self._openings_to_data(openings),
+            "openings":
+                self._openings_to_data(
+                    openings
+                ),
 
-            # Canonical structured building geometry.
-            #
-            # This is part of the floor-plan JSON, not just visualization.
-            # It must be persisted with every revision because later analysis
-            # and optimization depend on it.
-            "buildingBoundary": boundary_data
+
+            "buildingBoundary":
+                boundary_data
         }
 
-        return result, img_print
+        return (
+            result,
+            img_print
+        )

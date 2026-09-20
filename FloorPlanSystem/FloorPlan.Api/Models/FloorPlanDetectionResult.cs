@@ -3,9 +3,6 @@ using System.Text.Json.Serialization;
 namespace FloorPlan.Api.Models;
 
 
-// =========================================================
-// COMPLETE DETECTION RESULT
-// =========================================================
 
 public class FloorPlanDetectionResult
 {
@@ -46,9 +43,7 @@ public class FloorPlanDetectionResult
 }
 
 
-// =========================================================
-// IMAGE
-// =========================================================
+
 
 public class FloorPlanImageInfo
 {
@@ -62,9 +57,7 @@ public class FloorPlanImageInfo
 }
 
 
-// =========================================================
-// VALIDATION
-// =========================================================
+
 
 public class FloorPlanValidation
 {
@@ -76,9 +69,7 @@ public class FloorPlanValidation
 }
 
 
-// =========================================================
-// SUMMARY
-// =========================================================
+
 
 public class DetectionSummary
 {
@@ -92,31 +83,50 @@ public class DetectionSummary
 }
 
 
-// =========================================================
-// BUILDING BOUNDARY
-// =========================================================
 
 public class BuildingBoundaryDetection
 {
-    // Current geometry for this revision.
-    // These coordinates are in ORIGINAL IMAGE PIXELS.
-    public List<PixelPoint> OuterPolygon { get; set; } =
-        [];
-
-    public List<PixelPoint> UsablePolygon { get; set; } =
-        [];
-
-
-    // Who produced the CURRENT boundary geometry.
+    // =====================================================
+    // CANONICAL BUILDING GEOMETRY
+    // =====================================================
     //
-    // "ai"   = unchanged automatic result
-    // "user" = user edited the geometry
+    // There is now ONLY ONE application boundary.
+    //
+    // Polygon represents the usable interior floor envelope.
+    //
+    // Everything outside this polygon is outside the space
+    // where rooms may exist or where the optimizer may move
+    // geometry.
+    //
+    // Coordinates are always ORIGINAL IMAGE PIXELS.
+    // =====================================================
+
+    public List<PixelPoint> Polygon { get; set; } =
+        [];
+
+
+    // =====================================================
+    // CURRENT GEOMETRY OWNER
+    // =====================================================
+    //
+    // "ai"
+    //     Geometry is still the automatic detector result.
+    //
+    // "user"
+    //     The user changed/redrew the polygon.
+    // =====================================================
+
     public string Source { get; set; } =
         "ai";
 
 
     // Typical values:
-    // "unreviewed", "edited", "confirmed", "needs-recalculation"
+    //
+    // "unreviewed"
+    // "edited"
+    // "confirmed"
+    // "needs-recalculation"
+
     public string ReviewStatus { get; set; } =
         "unreviewed";
 
@@ -124,9 +134,7 @@ public class BuildingBoundaryDetection
     public bool IsUserEdited { get; set; }
 
 
-    // This keeps the detector's original confidence/provenance information.
-    // It is intentionally separate from the current geometry so a user can
-    // edit a boundary even when the AI said valid=true.
+
     public BoundaryAutomaticAssessment AutomaticAssessment { get; set; } =
         new();
 }
@@ -136,14 +144,18 @@ public class BoundaryAutomaticAssessment
 {
     public bool Valid { get; set; }
 
+
     public bool RequiresReview { get; set; } =
         true;
+
 
     public string Method { get; set; } =
         "hybrid";
 
+
     public string CandidateSource { get; set; } =
         "none";
+
 
     public string Message { get; set; } =
         string.Empty;
@@ -151,20 +163,20 @@ public class BoundaryAutomaticAssessment
 
     public double RoomAreaCoverage { get; set; }
 
+
     public double RoomCentroidCoverage { get; set; }
+
 
     public double WallSupport { get; set; }
 
 
     public int SelectedStructuralGapPixels { get; set; }
 
+
     public double EstimatedWallThicknessPixels { get; set; }
 }
 
 
-// =========================================================
-// ROOM
-// =========================================================
 
 public class RoomDetection
 {
@@ -189,17 +201,11 @@ public class RoomDetection
     public double AreaPixels { get; set; }
 
 
-    // =====================================================
-    // NEW
-    // =====================================================
-
     public double? AreaSquareMetres { get; set; }
 }
 
 
-// =========================================================
-// DOOR
-// =========================================================
+
 
 public class DoorDetection
 {
@@ -226,9 +232,7 @@ public class DoorDetection
 }
 
 
-// =========================================================
-// WINDOW
-// =========================================================
+
 
 public class WindowDetection
 {
@@ -244,9 +248,7 @@ public class WindowDetection
 }
 
 
-// =========================================================
-// OPENING
-// =========================================================
+
 
 public class OpeningDetection
 {
@@ -270,9 +272,7 @@ public class OpeningDetection
 }
 
 
-// =========================================================
-// CONNECTED ROOM
-// =========================================================
+
 
 public class ConnectedRoom
 {
@@ -284,9 +284,6 @@ public class ConnectedRoom
 }
 
 
-// =========================================================
-// PIXEL POINT
-// =========================================================
 
 public class PixelPoint
 {
@@ -296,9 +293,7 @@ public class PixelPoint
 }
 
 
-// =========================================================
-// BOUNDING BOX
-// =========================================================
+
 
 public class BoundingBox
 {

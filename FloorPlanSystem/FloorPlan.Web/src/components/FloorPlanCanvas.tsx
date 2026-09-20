@@ -17,7 +17,6 @@ import {
 import type Konva from "konva";
 
 import type {
-  BoundaryKind,
   FloorPlan,
   PixelPoint,
 } from "../types";
@@ -30,32 +29,22 @@ import {
   polygonInsidePolygon,
 } from "../geometry";
 
-
 export type ElementType =
   | "room"
   | "door"
   | "window"
   | "opening";
 
-
 interface FloorPlanCanvasProps {
   floorPlan: FloorPlan;
-
   selectedType: ElementType | null;
   selectedId: number | null;
-
   addMode: ElementType | null;
-
-  boundaryEditMode: BoundaryKind | null;
-
-  boundaryDrawMode: BoundaryKind | null;
-
+  boundaryEditMode: boolean;
+  boundaryDrawMode: boolean;
   boundaryDraftPoints: PixelPoint[];
-
   roomEditModeId: number | null;
-
   roomDrawModeId: number | null;
-
   roomDraftPoints: PixelPoint[];
 
   onSelect: (
@@ -76,19 +65,16 @@ interface FloorPlanCanvasProps {
   ) => void;
 
   onMoveBoundaryPoint: (
-    kind: BoundaryKind,
     pointIndex: number,
     point: PixelPoint
   ) => void;
 
   onInsertBoundaryPoint: (
-    kind: BoundaryKind,
     insertAfterIndex: number,
     point: PixelPoint
   ) => void;
 
   onDeleteBoundaryPoint: (
-    kind: BoundaryKind,
     pointIndex: number
   ) => void;
 
@@ -118,7 +104,6 @@ interface FloorPlanCanvasProps {
   ) => void;
 }
 
-
 function polygonToPoints(
   polygon: PixelPoint[]
 ): number[] {
@@ -130,58 +115,83 @@ function polygonToPoints(
   );
 }
 
-
 function distanceToSegmentSquared(
   point: PixelPoint,
   start: PixelPoint,
   end: PixelPoint
 ): number {
-  const dx = end.x - start.x;
-  const dy = end.y - start.y;
+  const dx =
+    end.x - start.x;
+
+  const dy =
+    end.y - start.y;
 
   if (
     dx === 0 &&
     dy === 0
   ) {
-    const px = point.x - start.x;
-    const py = point.y - start.y;
-    return px * px + py * py;
+    const px =
+      point.x - start.x;
+
+    const py =
+      point.y - start.y;
+
+    return (
+      px * px +
+      py * py
+    );
   }
 
   const lengthSquared =
-    dx * dx + dy * dy;
+    dx * dx +
+    dy * dy;
 
-  const t = Math.max(
-    0,
-    Math.min(
-      1,
-      (
-        (point.x - start.x) * dx +
-        (point.y - start.y) * dy
-      ) / lengthSquared
-    )
+  const t =
+    Math.max(
+      0,
+      Math.min(
+        1,
+        (
+          (point.x - start.x) * dx +
+          (point.y - start.y) * dy
+        ) /
+        lengthSquared
+      )
+    );
+
+  const closestX =
+    start.x +
+    t * dx;
+
+  const closestY =
+    start.y +
+    t * dy;
+
+  const px =
+    point.x - closestX;
+
+  const py =
+    point.y - closestY;
+
+  return (
+    px * px +
+    py * py
   );
-
-  const closestX = start.x + t * dx;
-  const closestY = start.y + t * dy;
-
-  const px = point.x - closestX;
-  const py = point.y - closestY;
-
-  return px * px + py * py;
 }
-
 
 function closestSegmentIndex(
   polygon: PixelPoint[],
   point: PixelPoint
 ): number {
-  if (polygon.length < 2) {
+  if (
+    polygon.length < 2
+  ) {
     return 0;
   }
 
   let bestIndex = 0;
-  let bestDistance = Number.POSITIVE_INFINITY;
+  let bestDistance =
+    Number.POSITIVE_INFINITY;
 
   for (
     let index = 0;
@@ -189,7 +199,8 @@ function closestSegmentIndex(
     index++
   ) {
     const nextIndex =
-      (index + 1) % polygon.length;
+      (index + 1) %
+      polygon.length;
 
     const distance =
       distanceToSegmentSquared(
@@ -198,15 +209,19 @@ function closestSegmentIndex(
         polygon[nextIndex]
       );
 
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      bestIndex = index;
+    if (
+      distance < bestDistance
+    ) {
+      bestDistance =
+        distance;
+
+      bestIndex =
+        index;
     }
   }
 
   return bestIndex;
 }
-
 
 function FloorPlanCanvas({
   floorPlan,
@@ -254,103 +269,111 @@ function FloorPlanCanvas({
       null
     );
 
-
-  const [
-    boundaryHoverPoint,
-    setBoundaryHoverPoint,
-  ] =
+  const [boundaryHoverPoint, setBoundaryHoverPoint] =
     useState<PixelPoint | null>(
       null
     );
 
-
-  const [
-    roomHoverPoint,
-    setRoomHoverPoint,
-  ] =
+  const [roomHoverPoint, setRoomHoverPoint] =
     useState<PixelPoint | null>(
       null
     );
 
+  useEffect(
+    () => {
+      const imageElement =
+        new window.Image();
 
-  useEffect(() => {
-    const imageElement =
-      new window.Image();
+      imageElement.onload =
+        () => {
+          setImage(
+            imageElement
+          );
+        };
 
-    imageElement.onload = () => {
-      setImage(imageElement);
-    };
+      imageElement.src =
+        getImageUrl(
+          floorPlan.imagePath
+        );
 
-    imageElement.src =
-      getImageUrl(
-        floorPlan.imagePath
+      return () => {
+        imageElement.onload =
+          null;
+      };
+    },
+    [floorPlan.imagePath]
+  );
+
+  useEffect(
+    () => {
+      const container =
+        containerRef.current;
+
+      if (!container) {
+        return;
+      }
+
+      const updateWidth =
+        () => {
+          setContainerWidth(
+            container.clientWidth
+          );
+        };
+
+      updateWidth();
+
+      const observer =
+        new ResizeObserver(
+          updateWidth
+        );
+
+      observer.observe(
+        container
       );
 
-    return () => {
-      imageElement.onload = null;
-    };
-  }, [
-    floorPlan.imagePath,
-  ]);
+      return () => {
+        observer.disconnect();
+      };
+    },
+    []
+  );
 
-
-  useEffect(() => {
-    const container =
-      containerRef.current;
-
-    if (!container) {
-      return;
-    }
-
-    const updateWidth = () => {
-      setContainerWidth(
-        container.clientWidth
-      );
-    };
-
-    updateWidth();
-
-    const observer =
-      new ResizeObserver(
-        updateWidth
+  useEffect(
+    () => {
+      setDrawingStart(
+        null
       );
 
-    observer.observe(container);
+      setDrawingCurrent(
+        null
+      );
+    },
+    [addMode]
+  );
 
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
+  useEffect(
+    () => {
+      setBoundaryHoverPoint(
+        null
+      );
+    },
+    [boundaryDrawMode]
+  );
 
-
-  useEffect(() => {
-    setDrawingStart(null);
-    setDrawingCurrent(null);
-  }, [
-    addMode,
-  ]);
-
-
-  useEffect(() => {
-    setBoundaryHoverPoint(null);
-  }, [
-    boundaryDrawMode,
-  ]);
-
-
-  useEffect(() => {
-    setRoomHoverPoint(null);
-  }, [
-    roomDrawModeId,
-  ]);
-
+  useEffect(
+    () => {
+      setRoomHoverPoint(
+        null
+      );
+    },
+    [roomDrawModeId]
+  );
 
   const originalWidth =
     floorPlan.widthPixels;
 
   const originalHeight =
     floorPlan.heightPixels;
-
 
   if (
     !image ||
@@ -368,7 +391,6 @@ function FloorPlanCanvas({
     );
   }
 
-
   const displayWidth =
     Math.min(
       containerWidth,
@@ -382,37 +404,56 @@ function FloorPlanCanvas({
   const displayHeight =
     originalHeight * scale;
 
-  const roomStroke = 2 / scale;
-  const selectedRoomStroke = 5 / scale;
-  const objectStroke = 3 / scale;
-  const selectedObjectStroke = 6 / scale;
-  const fontSize = 16 / scale;
-  const boundaryStroke = 4 / scale;
-  const selectedBoundaryStroke = 7 / scale;
-  const boundaryHandleRadius = 8 / scale;
+  const roomStroke =
+    2 / scale;
 
+  const selectedRoomStroke =
+    5 / scale;
+
+  const objectStroke =
+    3 / scale;
+
+  const selectedObjectStroke =
+    6 / scale;
+
+  const fontSize =
+    16 / scale;
+
+  const boundaryStroke =
+    4 / scale;
+
+  const selectedBoundaryStroke =
+    7 / scale;
+
+  const boundaryHandleRadius =
+    8 / scale;
+
+  const boundaryColor =
+    "#0891b2";
 
   function clampPoint(
     point: PixelPoint
   ): PixelPoint {
     return {
-      x: Math.max(
-        0,
-        Math.min(
-          originalWidth,
-          point.x
-        )
-      ),
-      y: Math.max(
-        0,
-        Math.min(
-          originalHeight,
-          point.y
-        )
-      ),
+      x:
+        Math.max(
+          0,
+          Math.min(
+            originalWidth,
+            point.x
+          )
+        ),
+
+      y:
+        Math.max(
+          0,
+          Math.min(
+            originalHeight,
+            point.y
+          )
+        ),
     };
   }
-
 
   function getOriginalPointer(
     stage: Konva.Stage
@@ -425,19 +466,26 @@ function FloorPlanCanvas({
     }
 
     return clampPoint({
-      x: pointer.x / scale,
-      y: pointer.y / scale,
+      x:
+        pointer.x /
+        scale,
+
+      y:
+        pointer.y /
+        scale,
     });
   }
-
 
   function finishDrag(
     type: ElementType,
     id: number,
     node: Konva.Node
   ) {
-    const deltaX = node.x();
-    const deltaY = node.y();
+    const deltaX =
+      node.x();
+
+    const deltaY =
+      node.y();
 
     onMoveElement(
       type,
@@ -452,7 +500,6 @@ function FloorPlanCanvas({
     });
   }
 
-
   function startDrawing(
     stage: Konva.Stage
   ) {
@@ -461,16 +508,22 @@ function FloorPlanCanvas({
     }
 
     const point =
-      getOriginalPointer(stage);
+      getOriginalPointer(
+        stage
+      );
 
     if (!point) {
       return;
     }
 
-    setDrawingStart(point);
-    setDrawingCurrent(point);
-  }
+    setDrawingStart(
+      point
+    );
 
+    setDrawingCurrent(
+      point
+    );
+  }
 
   function continueDrawing(
     stage: Konva.Stage
@@ -483,15 +536,18 @@ function FloorPlanCanvas({
     }
 
     const point =
-      getOriginalPointer(stage);
+      getOriginalPointer(
+        stage
+      );
 
     if (!point) {
       return;
     }
 
-    setDrawingCurrent(point);
+    setDrawingCurrent(
+      point
+    );
   }
-
 
   function finishDrawing(
     stage: Konva.Stage
@@ -504,34 +560,45 @@ function FloorPlanCanvas({
     }
 
     const end =
-      getOriginalPointer(stage);
+      getOriginalPointer(
+        stage
+      );
 
     if (!end) {
       return;
     }
 
-    const x1 = Math.min(
-      drawingStart.x,
-      end.x
+    const x1 =
+      Math.min(
+        drawingStart.x,
+        end.x
+      );
+
+    const y1 =
+      Math.min(
+        drawingStart.y,
+        end.y
+      );
+
+    const x2 =
+      Math.max(
+        drawingStart.x,
+        end.x
+      );
+
+    const y2 =
+      Math.max(
+        drawingStart.y,
+        end.y
+      );
+
+    setDrawingStart(
+      null
     );
 
-    const y1 = Math.min(
-      drawingStart.y,
-      end.y
+    setDrawingCurrent(
+      null
     );
-
-    const x2 = Math.max(
-      drawingStart.x,
-      end.x
-    );
-
-    const y2 = Math.max(
-      drawingStart.y,
-      end.y
-    );
-
-    setDrawingStart(null);
-    setDrawingCurrent(null);
 
     if (
       x2 - x1 < 8 ||
@@ -551,33 +618,37 @@ function FloorPlanCanvas({
     );
   }
 
-
   let previewPolygon:
-    PixelPoint[] | null = null;
+    PixelPoint[] | null =
+      null;
 
   if (
     drawingStart &&
     drawingCurrent
   ) {
-    const x1 = Math.min(
-      drawingStart.x,
-      drawingCurrent.x
-    );
+    const x1 =
+      Math.min(
+        drawingStart.x,
+        drawingCurrent.x
+      );
 
-    const y1 = Math.min(
-      drawingStart.y,
-      drawingCurrent.y
-    );
+    const y1 =
+      Math.min(
+        drawingStart.y,
+        drawingCurrent.y
+      );
 
-    const x2 = Math.max(
-      drawingStart.x,
-      drawingCurrent.x
-    );
+    const x2 =
+      Math.max(
+        drawingStart.x,
+        drawingCurrent.x
+      );
 
-    const y2 = Math.max(
-      drawingStart.y,
-      drawingCurrent.y
-    );
+    const y2 =
+      Math.max(
+        drawingStart.y,
+        drawingCurrent.y
+      );
 
     previewPolygon = [
       { x: x1, y: y1 },
@@ -587,33 +658,32 @@ function FloorPlanCanvas({
     ];
   }
 
-
   function previewColor(): string {
     switch (addMode) {
       case "room":
         return "#16a34a";
+
       case "door":
         return "#dc2626";
+
       case "window":
         return "#2563eb";
+
       case "opening":
         return "#ea580c";
+
       default:
         return "#111827";
     }
   }
-
 
   const boundary =
     floorPlan
       .revision
       .buildingBoundary;
 
-  const outerPolygon =
-    boundary?.outerPolygon ?? [];
-
-  const usablePolygon =
-    boundary?.usablePolygon ?? [];
+  const boundaryPolygon =
+    boundary?.polygon ?? [];
 
   const automaticValid =
     boundary
@@ -622,14 +692,8 @@ function FloorPlanCanvas({
 
   const boundaryNeedsReview =
     !automaticValid &&
-    boundary?.reviewStatus !== "confirmed";
-
-
-  const boundaryDrawColor =
-    boundaryDrawMode === "outer"
-      ? "#d946ef"
-      : "#0891b2";
-
+    boundary?.reviewStatus !==
+      "confirmed";
 
   function addBoundaryDraftPointFromStage(
     stage: Konva.Stage
@@ -639,15 +703,18 @@ function FloorPlanCanvas({
     }
 
     const point =
-      getOriginalPointer(stage);
+      getOriginalPointer(
+        stage
+      );
 
     if (!point) {
       return;
     }
 
-    onAddBoundaryDraftPoint(point);
+    onAddBoundaryDraftPoint(
+      point
+    );
   }
-
 
   function updateBoundaryHoverFromStage(
     stage: Konva.Stage
@@ -657,66 +724,77 @@ function FloorPlanCanvas({
     }
 
     const point =
-      getOriginalPointer(stage);
+      getOriginalPointer(
+        stage
+      );
 
-    setBoundaryHoverPoint(point);
+    setBoundaryHoverPoint(
+      point
+    );
   }
-
 
   function addRoomDraftPointFromStage(
     stage: Konva.Stage
   ) {
-    if (roomDrawModeId === null) {
+    if (
+      roomDrawModeId === null
+    ) {
       return;
     }
 
     const point =
-      getOriginalPointer(stage);
+      getOriginalPointer(
+        stage
+      );
 
     if (!point) {
       return;
     }
 
-    onAddRoomDraftPoint(point);
+    onAddRoomDraftPoint(
+      point
+    );
   }
-
 
   function updateRoomHoverFromStage(
     stage: Konva.Stage
   ) {
-    if (roomDrawModeId === null) {
+    if (
+      roomDrawModeId === null
+    ) {
       return;
     }
 
     const point =
-      getOriginalPointer(stage);
+      getOriginalPointer(
+        stage
+      );
 
-    setRoomHoverPoint(point);
+    setRoomHoverPoint(
+      point
+    );
   }
 
-
-  function renderBoundaryLine(
-    kind: BoundaryKind,
-    polygon: PixelPoint[],
-    color: string
-  ) {
-    if (polygon.length < 2) {
+  function renderBoundaryLine() {
+    if (
+      boundaryPolygon.length < 2
+    ) {
       return null;
     }
 
     const editing =
-      boundaryEditMode === kind &&
+      boundaryEditMode &&
       !boundaryDrawMode;
-
-    const beingRedrawn =
-      boundaryDrawMode === kind;
 
     return (
       <Line
-        key={`boundary-${kind}`}
-        points={polygonToPoints(polygon)}
+        points={
+          polygonToPoints(
+            boundaryPolygon
+          )
+        }
         closed
-        stroke={color}
+        stroke={boundaryColor}
         strokeWidth={
           editing
             ? selectedBoundaryStroke
@@ -732,145 +810,162 @@ function FloorPlanCanvas({
         }
         fill="rgba(0,0,0,0)"
         opacity={
-          beingRedrawn
+          boundaryDrawMode
             ? 0.35
             : 1
         }
         listening={
           editing &&
-          !addMode &&
-          !boundaryDrawMode
+          !addMode
         }
-        onDblClick={event => {
-          if (!editing) {
-            return;
-          }
+        onDblClick={
+          event => {
+            if (!editing) {
+              return;
+            }
 
-          event.cancelBubble = true;
+            event.cancelBubble =
+              true;
 
-          const stage =
-            event.currentTarget.getStage();
+            const stage =
+              event.currentTarget.getStage();
 
-          if (!stage) {
-            return;
-          }
+            if (!stage) {
+              return;
+            }
 
-          const point =
-            getOriginalPointer(stage);
+            const point =
+              getOriginalPointer(
+                stage
+              );
 
-          if (!point) {
-            return;
-          }
+            if (!point) {
+              return;
+            }
 
-          onInsertBoundaryPoint(
-            kind,
-            closestSegmentIndex(
-              polygon,
+            onInsertBoundaryPoint(
+              closestSegmentIndex(
+                boundaryPolygon,
+                point
+              ),
               point
-            ),
-            point
-          );
-        }}
-        onDblTap={event => {
-          if (!editing) {
-            return;
+            );
           }
+        }
+        onDblTap={
+          event => {
+            if (!editing) {
+              return;
+            }
 
-          event.cancelBubble = true;
+            event.cancelBubble =
+              true;
 
-          const stage =
-            event.currentTarget.getStage();
+            const stage =
+              event.currentTarget.getStage();
 
-          if (!stage) {
-            return;
-          }
+            if (!stage) {
+              return;
+            }
 
-          const point =
-            getOriginalPointer(stage);
+            const point =
+              getOriginalPointer(
+                stage
+              );
 
-          if (!point) {
-            return;
-          }
+            if (!point) {
+              return;
+            }
 
-          onInsertBoundaryPoint(
-            kind,
-            closestSegmentIndex(
-              polygon,
+            onInsertBoundaryPoint(
+              closestSegmentIndex(
+                boundaryPolygon,
+                point
+              ),
               point
-            ),
-            point
-          );
-        }}
+            );
+          }
+        }
       />
     );
   }
 
-
-  function renderBoundaryHandles(
-    kind: BoundaryKind,
-    polygon: PixelPoint[],
-    color: string
-  ) {
+  function renderBoundaryHandles() {
     if (
-      boundaryEditMode !== kind ||
+      !boundaryEditMode ||
       addMode ||
       boundaryDrawMode
     ) {
       return null;
     }
 
-    return polygon.map(
-      (point, pointIndex) => (
+    return boundaryPolygon.map(
+      (
+        point,
+        pointIndex
+      ) => (
         <Circle
-          key={`boundary-${kind}-point-${pointIndex}`}
+          key={`boundary-point-${pointIndex}`}
           x={point.x}
           y={point.y}
           radius={boundaryHandleRadius}
           fill="#ffffff"
-          stroke={color}
+          stroke={boundaryColor}
           strokeWidth={3 / scale}
           draggable
-          onDragEnd={event => {
-            const next = clampPoint({
-              x: event.currentTarget.x(),
-              y: event.currentTarget.y(),
-            });
+          onDragEnd={
+            event => {
+              const next =
+                clampPoint({
+                  x:
+                    event.currentTarget.x(),
 
-            onMoveBoundaryPoint(
-              kind,
-              pointIndex,
-              next
-            );
-          }}
-          onDblClick={event => {
-            event.cancelBubble = true;
+                  y:
+                    event.currentTarget.y(),
+                });
 
-            if (polygon.length <= 3) {
-              return;
+              onMoveBoundaryPoint(
+                pointIndex,
+                next
+              );
             }
+          }
+          onDblClick={
+            event => {
+              event.cancelBubble =
+                true;
 
-            onDeleteBoundaryPoint(
-              kind,
-              pointIndex
-            );
-          }}
-          onDblTap={event => {
-            event.cancelBubble = true;
+              if (
+                boundaryPolygon.length <= 3
+              ) {
+                return;
+              }
 
-            if (polygon.length <= 3) {
-              return;
+              onDeleteBoundaryPoint(
+                pointIndex
+              );
             }
+          }
+          onDblTap={
+            event => {
+              event.cancelBubble =
+                true;
 
-            onDeleteBoundaryPoint(
-              kind,
-              pointIndex
-            );
-          }}
+              if (
+                boundaryPolygon.length <= 3
+              ) {
+                return;
+              }
+
+              onDeleteBoundaryPoint(
+                pointIndex
+              );
+            }
+          }
         />
       )
     );
   }
-
 
   function renderRoomHandles() {
     if (
@@ -889,7 +984,8 @@ function FloorPlanCanvas({
         .rooms
         .find(
           current =>
-            current.id === roomEditModeId
+            current.id ===
+            roomEditModeId
         );
 
     if (!room) {
@@ -897,7 +993,10 @@ function FloorPlanCanvas({
     }
 
     return room.polygon.map(
-      (point, pointIndex) => (
+      (
+        point,
+        pointIndex
+      ) => (
         <Circle
           key={`room-edit-${room.id}-point-${pointIndex}`}
           x={point.x}
@@ -907,47 +1006,62 @@ function FloorPlanCanvas({
           stroke="#15803d"
           strokeWidth={3 / scale}
           draggable
-          onDragEnd={event => {
-            const next = clampPoint({
-              x: event.currentTarget.x(),
-              y: event.currentTarget.y(),
-            });
+          onDragEnd={
+            event => {
+              const next =
+                clampPoint({
+                  x:
+                    event.currentTarget.x(),
 
-            onMoveRoomPoint(
-              room.id,
-              pointIndex,
-              next
-            );
-          }}
-          onDblClick={event => {
-            event.cancelBubble = true;
+                  y:
+                    event.currentTarget.y(),
+                });
 
-            if (room.polygon.length <= 3) {
-              return;
+              onMoveRoomPoint(
+                room.id,
+                pointIndex,
+                next
+              );
             }
+          }
+          onDblClick={
+            event => {
+              event.cancelBubble =
+                true;
 
-            onDeleteRoomPoint(
-              room.id,
-              pointIndex
-            );
-          }}
-          onDblTap={event => {
-            event.cancelBubble = true;
+              if (
+                room.polygon.length <= 3
+              ) {
+                return;
+              }
 
-            if (room.polygon.length <= 3) {
-              return;
+              onDeleteRoomPoint(
+                room.id,
+                pointIndex
+              );
             }
+          }
+          onDblTap={
+            event => {
+              event.cancelBubble =
+                true;
 
-            onDeleteRoomPoint(
-              room.id,
-              pointIndex
-            );
-          }}
+              if (
+                room.polygon.length <= 3
+              ) {
+                return;
+              }
+
+              onDeleteRoomPoint(
+                room.id,
+                pointIndex
+              );
+            }
+          }
         />
       )
     );
   }
-
 
   return (
     <div
@@ -967,111 +1081,160 @@ function FloorPlanCanvas({
       <Stage
         width={displayWidth}
         height={displayHeight}
-        onMouseDown={event => {
-          const stage =
-            event.target.getStage();
+        onMouseDown={
+          event => {
+            const stage =
+              event.target.getStage();
 
-          if (!stage) {
-            return;
+            if (!stage) {
+              return;
+            }
+
+            if (
+              boundaryDrawMode
+            ) {
+              addBoundaryDraftPointFromStage(
+                stage
+              );
+
+              return;
+            }
+
+            if (
+              roomDrawModeId !== null
+            ) {
+              addRoomDraftPointFromStage(
+                stage
+              );
+
+              return;
+            }
+
+            if (
+              addMode
+            ) {
+              startDrawing(
+                stage
+              );
+
+              return;
+            }
+
+            if (
+              event.target === stage
+            ) {
+              onSelect(
+                null,
+                null
+              );
+            }
           }
+        }
+        onMouseMove={
+          event => {
+            const stage =
+              event.target.getStage();
 
-          if (boundaryDrawMode) {
-            addBoundaryDraftPointFromStage(
+            if (!stage) {
+              return;
+            }
+
+            if (
+              boundaryDrawMode
+            ) {
+              updateBoundaryHoverFromStage(
+                stage
+              );
+
+              return;
+            }
+
+            if (
+              roomDrawModeId !== null
+            ) {
+              updateRoomHoverFromStage(
+                stage
+              );
+
+              return;
+            }
+
+            if (
+              !addMode
+            ) {
+              return;
+            }
+
+            continueDrawing(
               stage
             );
-            return;
           }
+        }
+        onMouseLeave={
+          () => {
+            if (
+              boundaryDrawMode
+            ) {
+              setBoundaryHoverPoint(
+                null
+              );
+            }
 
-          if (roomDrawModeId !== null) {
-            addRoomDraftPointFromStage(
-              stage
-            );
-            return;
+            if (
+              roomDrawModeId !== null
+            ) {
+              setRoomHoverPoint(
+                null
+              );
+            }
           }
+        }
+        onTouchStart={
+          event => {
+            const stage =
+              event.target.getStage();
 
-          if (addMode) {
-            startDrawing(stage);
-            return;
+            if (!stage) {
+              return;
+            }
+
+            if (
+              boundaryDrawMode
+            ) {
+              addBoundaryDraftPointFromStage(
+                stage
+              );
+
+              return;
+            }
+
+            if (
+              roomDrawModeId !== null
+            ) {
+              addRoomDraftPointFromStage(
+                stage
+              );
+            }
           }
+        }
+        onMouseUp={
+          event => {
+            if (!addMode) {
+              return;
+            }
 
-          if (
-            event.target === stage
-          ) {
-            onSelect(null, null);
-          }
-        }}
-        onMouseMove={event => {
-          const stage =
-            event.target.getStage();
+            const stage =
+              event.target.getStage();
 
-          if (!stage) {
-            return;
-          }
+            if (!stage) {
+              return;
+            }
 
-          if (boundaryDrawMode) {
-            updateBoundaryHoverFromStage(
-              stage
-            );
-            return;
-          }
-
-          if (roomDrawModeId !== null) {
-            updateRoomHoverFromStage(
-              stage
-            );
-            return;
-          }
-
-          if (!addMode) {
-            return;
-          }
-
-          continueDrawing(stage);
-        }}
-        onMouseLeave={() => {
-          if (boundaryDrawMode) {
-            setBoundaryHoverPoint(null);
-          }
-
-          if (roomDrawModeId !== null) {
-            setRoomHoverPoint(null);
-          }
-        }}
-        onTouchStart={event => {
-          const stage =
-            event.target.getStage();
-
-          if (!stage) {
-            return;
-          }
-
-          if (boundaryDrawMode) {
-            addBoundaryDraftPointFromStage(
-              stage
-            );
-            return;
-          }
-
-          if (roomDrawModeId !== null) {
-            addRoomDraftPointFromStage(
+            finishDrawing(
               stage
             );
           }
-        }}
-        onMouseUp={event => {
-          if (!addMode) {
-            return;
-          }
-
-          const stage =
-            event.target.getStage();
-
-          if (!stage) {
-            return;
-          }
-
-          finishDrawing(stage);
-        }}
+        }
       >
         <Layer
           scaleX={scale}
@@ -1084,22 +1247,8 @@ function FloorPlanCanvas({
             listening={false}
           />
 
-          {/* Building boundary is always visible when geometry exists. */}
-          {renderBoundaryLine(
-            "outer",
-            outerPolygon,
-            "#d946ef"
-          )}
+          {renderBoundaryLine()}
 
-          {renderBoundaryLine(
-            "usable",
-            usablePolygon,
-            "#0891b2"
-          )}
-
-
-          {/* Manual draw / redraw preview.
-              Existing JSON geometry is not changed until the user presses Finish. */}
           {
             boundaryDrawMode &&
             boundaryDraftPoints.length > 0 && (
@@ -1113,17 +1262,15 @@ function FloorPlanCanvas({
                   closed={
                     boundaryDraftPoints.length >= 3
                   }
-                  stroke={boundaryDrawColor}
-                  strokeWidth={
-                    selectedBoundaryStroke
-                  }
+                  stroke={boundaryColor}
+                  strokeWidth={selectedBoundaryStroke}
                   dash={[
                     12 / scale,
                     7 / scale,
                   ]}
                   fill={
                     boundaryDraftPoints.length >= 3
-                      ? "rgba(255,255,255,0.14)"
+                      ? "rgba(8,145,178,0.12)"
                       : "rgba(0,0,0,0)"
                   }
                   listening={false}
@@ -1137,16 +1284,16 @@ function FloorPlanCanvas({
                         boundaryDraftPoints[
                           boundaryDraftPoints.length - 1
                         ].x,
+
                         boundaryDraftPoints[
                           boundaryDraftPoints.length - 1
                         ].y,
+
                         boundaryHoverPoint.x,
                         boundaryHoverPoint.y,
                       ]}
-                      stroke={boundaryDrawColor}
-                      strokeWidth={
-                        3 / scale
-                      }
+                      stroke={boundaryColor}
+                      strokeWidth={3 / scale}
                       dash={[
                         8 / scale,
                         6 / scale,
@@ -1163,9 +1310,7 @@ function FloorPlanCanvas({
                       index
                     ) => (
                       <Circle
-                        key={
-                          `boundary-draft-${index}`
-                        }
+                        key={`boundary-draft-${index}`}
                         x={point.x}
                         y={point.y}
                         radius={
@@ -1175,15 +1320,11 @@ function FloorPlanCanvas({
                         }
                         fill={
                           index === 0
-                            ? boundaryDrawColor
+                            ? boundaryColor
                             : "#ffffff"
                         }
-                        stroke={
-                          boundaryDrawColor
-                        }
-                        strokeWidth={
-                          3 / scale
-                        }
+                        stroke={boundaryColor}
+                        strokeWidth={3 / scale}
                         listening={false}
                       />
                     )
@@ -1193,9 +1334,6 @@ function FloorPlanCanvas({
             )
           }
 
-
-          {/* Room redraw preview. The saved room polygon stays unchanged
-              until the user presses Finish in the editor. */}
           {
             roomDrawModeId !== null &&
             roomDraftPoints.length > 0 && (
@@ -1210,9 +1348,7 @@ function FloorPlanCanvas({
                     roomDraftPoints.length >= 3
                   }
                   stroke="#15803d"
-                  strokeWidth={
-                    selectedRoomStroke
-                  }
+                  strokeWidth={selectedRoomStroke}
                   dash={[
                     12 / scale,
                     7 / scale,
@@ -1233,9 +1369,11 @@ function FloorPlanCanvas({
                         roomDraftPoints[
                           roomDraftPoints.length - 1
                         ].x,
+
                         roomDraftPoints[
                           roomDraftPoints.length - 1
                         ].y,
+
                         roomHoverPoint.x,
                         roomHoverPoint.y,
                       ]}
@@ -1281,424 +1419,496 @@ function FloorPlanCanvas({
             )
           }
 
+          {
+            floorPlan.revision.rooms.map(
+              room => {
+                const selected =
+                  selectedType === "room" &&
+                  selectedId === room.id;
 
-          {floorPlan.revision.rooms.map(room => {
-            const selected =
-              selectedType === "room" &&
-              selectedId === room.id;
+                const editing =
+                  roomEditModeId === room.id &&
+                  roomDrawModeId === null;
 
-            const editing =
-              roomEditModeId === room.id &&
-              roomDrawModeId === null;
+                const outsideBoundary =
+                  boundaryPolygon.length >= 3 &&
+                  !polygonInsidePolygon(
+                    room.polygon,
+                    boundaryPolygon
+                  );
 
-            const outsideUsableBoundary =
-              usablePolygon.length >= 3 &&
-              !polygonInsidePolygon(
-                room.polygon,
-                usablePolygon
-              );
-
-            const roomListening =
-              !addMode &&
-              !boundaryEditMode &&
-              !boundaryDrawMode &&
-              roomDrawModeId === null &&
-              (
-                roomEditModeId === null ||
-                editing
-              );
-
-            const labelWidth =
-              200 / scale;
-
-            return (
-              <Group
-                key={`room-${room.id}`}
-                listening={
-                  roomListening
-                }
-                draggable={
-                  selected &&
-                  roomEditModeId === null &&
+                const roomListening =
+                  !addMode &&
+                  !boundaryEditMode &&
+                  !boundaryDrawMode &&
                   roomDrawModeId === null &&
-                  !addMode &&
-                  !boundaryEditMode &&
-                  !boundaryDrawMode
-                }
-                onClick={event => {
-                  event.cancelBubble = true;
-                  onSelect("room", room.id);
-                }}
-                onTap={event => {
-                  event.cancelBubble = true;
-                  onSelect("room", room.id);
-                }}
-                onDragEnd={event => {
-                  finishDrag(
-                    "room",
-                    room.id,
-                    event.currentTarget
+                  (
+                    roomEditModeId === null ||
+                    editing
                   );
-                }}
-              >
-                <Line
-                  points={
-                    polygonToPoints(
-                      room.polygon
-                    )
-                  }
-                  closed
-                  stroke={
-                    outsideUsableBoundary
-                      ? "#dc2626"
-                      : selected
-                        ? "#15803d"
-                        : "#16a34a"
-                  }
-                  strokeWidth={
-                    selected
-                      ? selectedRoomStroke
-                      : roomStroke
-                  }
-                  fill={
-                    outsideUsableBoundary
-                      ? "rgba(220, 38, 38, 0.16)"
-                      : selected
-                        ? "rgba(22, 163, 74, 0.22)"
-                        : "rgba(22, 163, 74, 0.10)"
-                  }
-                  dash={
-                    outsideUsableBoundary
-                      ? [
-                          10 / scale,
-                          6 / scale,
-                        ]
-                      : undefined
-                  }
-                  onDblClick={event => {
-                    if (!editing) {
-                      return;
+
+                const labelWidth =
+                  200 / scale;
+
+                return (
+                  <Group
+                    key={`room-${room.id}`}
+                    listening={roomListening}
+                    draggable={
+                      selected &&
+                      roomEditModeId === null &&
+                      roomDrawModeId === null &&
+                      !addMode &&
+                      !boundaryEditMode &&
+                      !boundaryDrawMode
                     }
+                    onClick={
+                      event => {
+                        event.cancelBubble =
+                          true;
 
-                    event.cancelBubble = true;
-
-                    const stage =
-                      event.currentTarget.getStage();
-
-                    if (!stage) {
-                      return;
+                        onSelect(
+                          "room",
+                          room.id
+                        );
+                      }
                     }
+                    onTap={
+                      event => {
+                        event.cancelBubble =
+                          true;
 
-                    const point =
-                      getOriginalPointer(stage);
-
-                    if (!point) {
-                      return;
+                        onSelect(
+                          "room",
+                          room.id
+                        );
+                      }
                     }
-
-                    onInsertRoomPoint(
-                      room.id,
-                      closestSegmentIndex(
-                        room.polygon,
-                        point
-                      ),
-                      point
-                    );
-                  }}
-                  onDblTap={event => {
-                    if (!editing) {
-                      return;
+                    onDragEnd={
+                      event => {
+                        finishDrag(
+                          "room",
+                          room.id,
+                          event.currentTarget
+                        );
+                      }
                     }
+                  >
+                    <Line
+                      points={
+                        polygonToPoints(
+                          room.polygon
+                        )
+                      }
+                      closed
+                      stroke={
+                        outsideBoundary
+                          ? "#dc2626"
+                          : selected
+                            ? "#15803d"
+                            : "#16a34a"
+                      }
+                      strokeWidth={
+                        selected
+                          ? selectedRoomStroke
+                          : roomStroke
+                      }
+                      fill={
+                        outsideBoundary
+                          ? "rgba(220,38,38,0.16)"
+                          : selected
+                            ? "rgba(22,163,74,0.22)"
+                            : "rgba(22,163,74,0.10)"
+                      }
+                      dash={
+                        outsideBoundary
+                          ? [
+                              10 / scale,
+                              6 / scale,
+                            ]
+                          : undefined
+                      }
+                      onDblClick={
+                        event => {
+                          if (!editing) {
+                            return;
+                          }
 
-                    event.cancelBubble = true;
+                          event.cancelBubble =
+                            true;
 
-                    const stage =
-                      event.currentTarget.getStage();
+                          const stage =
+                            event.currentTarget.getStage();
 
-                    if (!stage) {
-                      return;
-                    }
+                          if (!stage) {
+                            return;
+                          }
 
-                    const point =
-                      getOriginalPointer(stage);
+                          const point =
+                            getOriginalPointer(
+                              stage
+                            );
 
-                    if (!point) {
-                      return;
-                    }
+                          if (!point) {
+                            return;
+                          }
 
-                    onInsertRoomPoint(
-                      room.id,
-                      closestSegmentIndex(
-                        room.polygon,
-                        point
-                      ),
-                      point
-                    );
-                  }}
-                />
+                          onInsertRoomPoint(
+                            room.id,
+                            closestSegmentIndex(
+                              room.polygon,
+                              point
+                            ),
+                            point
+                          );
+                        }
+                      }
+                      onDblTap={
+                        event => {
+                          if (!editing) {
+                            return;
+                          }
 
-                <Text
-                  x={
-                    room.centroid.x -
-                    labelWidth / 2
-                  }
-                  y={
-                    room.centroid.y -
-                    fontSize / 2
-                  }
-                  width={labelWidth}
-                  text={`${room.id}. ${room.name}`}
-                  align="center"
-                  fontSize={fontSize}
-                  fontStyle="bold"
-                  fill="#111827"
-                  listening={false}
-                />
-              </Group>
-            );
-          })}
+                          event.cancelBubble =
+                            true;
 
+                          const stage =
+                            event.currentTarget.getStage();
 
-          {floorPlan.revision.doors.map(door => {
-            const selected =
-              selectedType === "door" &&
-              selectedId === door.id;
+                          if (!stage) {
+                            return;
+                          }
 
-            return (
-              <Group
-                key={`door-${door.id}`}
-                listening={
-                  !addMode &&
-                  !boundaryEditMode &&
-                  !boundaryDrawMode &&
-                  roomEditModeId === null &&
-                  roomDrawModeId === null
-                }
-                draggable={
-                  selected &&
-                  !addMode &&
-                  !boundaryEditMode &&
-                  !boundaryDrawMode &&
-                  roomEditModeId === null &&
-                  roomDrawModeId === null
-                }
-                onClick={event => {
-                  event.cancelBubble = true;
-                  onSelect("door", door.id);
-                }}
-                onTap={event => {
-                  event.cancelBubble = true;
-                  onSelect("door", door.id);
-                }}
-                onDragEnd={event => {
-                  finishDrag(
-                    "door",
-                    door.id,
-                    event.currentTarget
-                  );
-                }}
-              >
-                <Line
-                  points={
-                    polygonToPoints(
-                      door.polygon
-                    )
-                  }
-                  closed
-                  stroke={
-                    selected
-                      ? "#991b1b"
-                      : "#dc2626"
-                  }
-                  strokeWidth={
-                    selected
-                      ? selectedObjectStroke
-                      : objectStroke
-                  }
-                  fill={
-                    selected
-                      ? "rgba(220, 38, 38, 0.35)"
-                      : "rgba(220, 38, 38, 0.20)"
-                  }
-                />
-              </Group>
-            );
-          })}
+                          const point =
+                            getOriginalPointer(
+                              stage
+                            );
 
+                          if (!point) {
+                            return;
+                          }
 
-          {floorPlan.revision.windows.map(window => {
-            const selected =
-              selectedType === "window" &&
-              selectedId === window.id;
+                          onInsertRoomPoint(
+                            room.id,
+                            closestSegmentIndex(
+                              room.polygon,
+                              point
+                            ),
+                            point
+                          );
+                        }
+                      }
+                    />
 
-            return (
-              <Group
-                key={`window-${window.id}`}
-                listening={
-                  !addMode &&
-                  !boundaryEditMode &&
-                  !boundaryDrawMode &&
-                  roomEditModeId === null &&
-                  roomDrawModeId === null
-                }
-                draggable={
-                  selected &&
-                  !addMode &&
-                  !boundaryEditMode &&
-                  !boundaryDrawMode &&
-                  roomEditModeId === null &&
-                  roomDrawModeId === null
-                }
-                onClick={event => {
-                  event.cancelBubble = true;
-                  onSelect("window", window.id);
-                }}
-                onTap={event => {
-                  event.cancelBubble = true;
-                  onSelect("window", window.id);
-                }}
-                onDragEnd={event => {
-                  finishDrag(
-                    "window",
-                    window.id,
-                    event.currentTarget
-                  );
-                }}
-              >
-                <Line
-                  points={
-                    polygonToPoints(
-                      window.polygon
-                    )
-                  }
-                  closed
-                  stroke={
-                    selected
-                      ? "#1e40af"
-                      : "#2563eb"
-                  }
-                  strokeWidth={
-                    selected
-                      ? selectedObjectStroke
-                      : objectStroke
-                  }
-                  fill={
-                    selected
-                      ? "rgba(37, 99, 235, 0.35)"
-                      : "rgba(37, 99, 235, 0.20)"
-                  }
-                />
-              </Group>
-            );
-          })}
-
-
-          {floorPlan.revision.openings.map(opening => {
-            const selected =
-              selectedType === "opening" &&
-              selectedId === opening.id;
-
-            return (
-              <Group
-                key={`opening-${opening.id}`}
-                listening={
-                  !addMode &&
-                  !boundaryEditMode &&
-                  !boundaryDrawMode &&
-                  roomEditModeId === null &&
-                  roomDrawModeId === null
-                }
-                draggable={
-                  selected &&
-                  !addMode &&
-                  !boundaryEditMode &&
-                  !boundaryDrawMode &&
-                  roomEditModeId === null &&
-                  roomDrawModeId === null
-                }
-                onClick={event => {
-                  event.cancelBubble = true;
-                  onSelect("opening", opening.id);
-                }}
-                onTap={event => {
-                  event.cancelBubble = true;
-                  onSelect("opening", opening.id);
-                }}
-                onDragEnd={event => {
-                  finishDrag(
-                    "opening",
-                    opening.id,
-                    event.currentTarget
-                  );
-                }}
-              >
-                <Line
-                  points={
-                    polygonToPoints(
-                      opening.polygon
-                    )
-                  }
-                  closed
-                  stroke={
-                    selected
-                      ? "#9a3412"
-                      : "#ea580c"
-                  }
-                  strokeWidth={
-                    selected
-                      ? selectedObjectStroke
-                      : objectStroke
-                  }
-                  fill={
-                    selected
-                      ? "rgba(234, 88, 12, 0.35)"
-                      : "rgba(234, 88, 12, 0.20)"
-                  }
-                />
-              </Group>
-            );
-          })}
-
-
-          {previewPolygon && addMode && (
-            <Line
-              points={
-                polygonToPoints(
-                  previewPolygon
-                )
+                    <Text
+                      x={
+                        room.centroid.x -
+                        labelWidth / 2
+                      }
+                      y={
+                        room.centroid.y -
+                        fontSize / 2
+                      }
+                      width={labelWidth}
+                      text={`${room.id}. ${room.name}`}
+                      align="center"
+                      fontSize={fontSize}
+                      fontStyle="bold"
+                      fill="#111827"
+                      listening={false}
+                    />
+                  </Group>
+                );
               }
-              closed
-              stroke={previewColor()}
-              strokeWidth={4 / scale}
-              dash={[
-                12 / scale,
-                8 / scale,
-              ]}
-              fill="rgba(255,255,255,0.20)"
-              listening={false}
-            />
-          )}
+            )
+          }
 
+          {
+            floorPlan.revision.doors.map(
+              door => {
+                const selected =
+                  selectedType === "door" &&
+                  selectedId === door.id;
 
-          {/* Handles are rendered last so they remain easy to grab. */}
-          {renderBoundaryHandles(
-            "outer",
-            outerPolygon,
-            "#d946ef"
-          )}
+                return (
+                  <Group
+                    key={`door-${door.id}`}
+                    listening={
+                      !addMode &&
+                      !boundaryEditMode &&
+                      !boundaryDrawMode &&
+                      roomEditModeId === null &&
+                      roomDrawModeId === null
+                    }
+                    draggable={
+                      selected &&
+                      !addMode &&
+                      !boundaryEditMode &&
+                      !boundaryDrawMode &&
+                      roomEditModeId === null &&
+                      roomDrawModeId === null
+                    }
+                    onClick={
+                      event => {
+                        event.cancelBubble =
+                          true;
 
-          {renderBoundaryHandles(
-            "usable",
-            usablePolygon,
-            "#0891b2"
-          )}
+                        onSelect(
+                          "door",
+                          door.id
+                        );
+                      }
+                    }
+                    onTap={
+                      event => {
+                        event.cancelBubble =
+                          true;
 
+                        onSelect(
+                          "door",
+                          door.id
+                        );
+                      }
+                    }
+                    onDragEnd={
+                      event => {
+                        finishDrag(
+                          "door",
+                          door.id,
+                          event.currentTarget
+                        );
+                      }
+                    }
+                  >
+                    <Line
+                      points={
+                        polygonToPoints(
+                          door.polygon
+                        )
+                      }
+                      closed
+                      stroke={
+                        selected
+                          ? "#991b1b"
+                          : "#dc2626"
+                      }
+                      strokeWidth={
+                        selected
+                          ? selectedObjectStroke
+                          : objectStroke
+                      }
+                      fill={
+                        selected
+                          ? "rgba(220,38,38,0.35)"
+                          : "rgba(220,38,38,0.20)"
+                      }
+                    />
+                  </Group>
+                );
+              }
+            )
+          }
+
+          {
+            floorPlan.revision.windows.map(
+              window => {
+                const selected =
+                  selectedType === "window" &&
+                  selectedId === window.id;
+
+                return (
+                  <Group
+                    key={`window-${window.id}`}
+                    listening={
+                      !addMode &&
+                      !boundaryEditMode &&
+                      !boundaryDrawMode &&
+                      roomEditModeId === null &&
+                      roomDrawModeId === null
+                    }
+                    draggable={
+                      selected &&
+                      !addMode &&
+                      !boundaryEditMode &&
+                      !boundaryDrawMode &&
+                      roomEditModeId === null &&
+                      roomDrawModeId === null
+                    }
+                    onClick={
+                      event => {
+                        event.cancelBubble =
+                          true;
+
+                        onSelect(
+                          "window",
+                          window.id
+                        );
+                      }
+                    }
+                    onTap={
+                      event => {
+                        event.cancelBubble =
+                          true;
+
+                        onSelect(
+                          "window",
+                          window.id
+                        );
+                      }
+                    }
+                    onDragEnd={
+                      event => {
+                        finishDrag(
+                          "window",
+                          window.id,
+                          event.currentTarget
+                        );
+                      }
+                    }
+                  >
+                    <Line
+                      points={
+                        polygonToPoints(
+                          window.polygon
+                        )
+                      }
+                      closed
+                      stroke={
+                        selected
+                          ? "#1e40af"
+                          : "#2563eb"
+                      }
+                      strokeWidth={
+                        selected
+                          ? selectedObjectStroke
+                          : objectStroke
+                      }
+                      fill={
+                        selected
+                          ? "rgba(37,99,235,0.35)"
+                          : "rgba(37,99,235,0.20)"
+                      }
+                    />
+                  </Group>
+                );
+              }
+            )
+          }
+
+          {
+            floorPlan.revision.openings.map(
+              opening => {
+                const selected =
+                  selectedType === "opening" &&
+                  selectedId === opening.id;
+
+                return (
+                  <Group
+                    key={`opening-${opening.id}`}
+                    listening={
+                      !addMode &&
+                      !boundaryEditMode &&
+                      !boundaryDrawMode &&
+                      roomEditModeId === null &&
+                      roomDrawModeId === null
+                    }
+                    draggable={
+                      selected &&
+                      !addMode &&
+                      !boundaryEditMode &&
+                      !boundaryDrawMode &&
+                      roomEditModeId === null &&
+                      roomDrawModeId === null
+                    }
+                    onClick={
+                      event => {
+                        event.cancelBubble =
+                          true;
+
+                        onSelect(
+                          "opening",
+                          opening.id
+                        );
+                      }
+                    }
+                    onTap={
+                      event => {
+                        event.cancelBubble =
+                          true;
+
+                        onSelect(
+                          "opening",
+                          opening.id
+                        );
+                      }
+                    }
+                    onDragEnd={
+                      event => {
+                        finishDrag(
+                          "opening",
+                          opening.id,
+                          event.currentTarget
+                        );
+                      }
+                    }
+                  >
+                    <Line
+                      points={
+                        polygonToPoints(
+                          opening.polygon
+                        )
+                      }
+                      closed
+                      stroke={
+                        selected
+                          ? "#9a3412"
+                          : "#ea580c"
+                      }
+                      strokeWidth={
+                        selected
+                          ? selectedObjectStroke
+                          : objectStroke
+                      }
+                      fill={
+                        selected
+                          ? "rgba(234,88,12,0.35)"
+                          : "rgba(234,88,12,0.20)"
+                      }
+                    />
+                  </Group>
+                );
+              }
+            )
+          }
+
+          {
+            previewPolygon &&
+            addMode && (
+              <Line
+                points={
+                  polygonToPoints(
+                    previewPolygon
+                  )
+                }
+                closed
+                stroke={previewColor()}
+                strokeWidth={4 / scale}
+                dash={[
+                  12 / scale,
+                  8 / scale,
+                ]}
+                fill="rgba(255,255,255,0.20)"
+                listening={false}
+              />
+            )
+          }
+
+          {renderBoundaryHandles()}
           {renderRoomHandles()}
         </Layer>
       </Stage>
     </div>
   );
 }
-
 
 export default FloorPlanCanvas;
