@@ -146,6 +146,8 @@ class GlobalPlacementOptimizer:
         minimum_preserved_adjacency_ratio: float = 0.05,
         minimum_target_bbox_fill_ratio: float = 0.55,
         maximum_aspect_ratio_change: float = 1.75,
+        maximum_raster_overlap_pixels: float = 12.0,
+        maximum_boundary_clip_ratio: float = 0.02,
         max_invalid_solutions: int = 250,
     ):
         if not 0 < minimum_area_ratio <= 1:
@@ -172,6 +174,15 @@ class GlobalPlacementOptimizer:
             )
         if maximum_aspect_ratio_change < 1:
             raise ValueError("maximum_aspect_ratio_change must be at least one")
+        if maximum_raster_overlap_pixels < GEOMETRY_TOLERANCE_PIXELS:
+            raise ValueError(
+                "maximum_raster_overlap_pixels cannot be smaller than the "
+                "geometry tolerance"
+            )
+        if not 0 <= maximum_boundary_clip_ratio <= 0.05:
+            raise ValueError(
+                "maximum_boundary_clip_ratio must be in the interval [0, 0.05]"
+            )
 
         self.solver = solver
         self.minimum_area_ratio = float(minimum_area_ratio)
@@ -195,6 +206,8 @@ class GlobalPlacementOptimizer:
             minimum_target_bbox_fill_ratio
         )
         self.maximum_aspect_ratio_change = float(maximum_aspect_ratio_change)
+        self.maximum_raster_overlap_pixels = float(maximum_raster_overlap_pixels)
+        self.maximum_boundary_clip_ratio = float(maximum_boundary_clip_ratio)
         self.max_invalid_solutions = int(max_invalid_solutions)
 
     def optimize(
@@ -390,7 +403,9 @@ class GlobalPlacementOptimizer:
 
                         transformed = affinity.translate(scaled, xoff=dx, yoff=dy)
                         outside_area = float(transformed.difference(boundary).area)
-                        if outside_area > transformed.area * 0.01:
+                        if outside_area > (
+                            transformed.area * self.maximum_boundary_clip_ratio
+                        ):
                             continue
                         # Image-derived exterior walls contain one-pixel stair
                         # steps. Clip only sub-1% protrusions to the fixed shell.
@@ -456,6 +471,13 @@ class GlobalPlacementOptimizer:
         ratios.extend(
             min(1.0, minimum_ratio + delta)
             for delta in (0.0025, 0.005, 0.01, 0.02)
+        )
+        # A one-axis resize at this ratio reaches the configured maximum
+        # aspect-ratio change exactly. Include it explicitly so lowering the
+        # minimum (for example from 0.60 to 0.50) cannot accidentally remove
+        # the best shape-preserving candidate from the discrete search grid.
+        ratios.append(
+            max(minimum_ratio, 1.0 / self.maximum_aspect_ratio_change)
         )
         return sorted(set(ratios))
 
@@ -562,7 +584,7 @@ class GlobalPlacementOptimizer:
                 if first.room_id == second.room_id:
                     continue
                 if first.polygon.intersection(second.polygon).area > (
-                    GEOMETRY_TOLERANCE_PIXELS
+                    self.maximum_raster_overlap_pixels
                 ):
                     conflicts.append((first.candidate_id, second.candidate_id))
                     continue
@@ -729,6 +751,10 @@ class GlobalPlacementOptimizer:
         if set(optimized) != expected_non_target_ids:
             return None, "not every non-target room received one placement"
 
+        overlap_error = self._repair_raster_overlaps(optimized, minimums)
+        if overlap_error is not None:
+            return None, overlap_error
+
         for room_id, polygon in optimized.items():
             if polygon.area + 1e-6 < minimums[room_id]:
                 return None, f"room {room_id} fell below its minimum area"
@@ -809,3 +835,56 @@ class GlobalPlacementOptimizer:
             return None, f"partition coverage changed by {changed_coverage:.2f}px²"
 
         return optimized, None
+
+    def _repair_raster_overlaps(
+        self,
+        optimized: dict[int, Polygon],
+        minimums: dict[int, float],
+    ) -> str | None:
+        """Remove sub-pixel stair-step overlaps from selected room polygons.
+
+        Scaling image-derived polygons can turn a shared one-pixel staircase
+        into a few square pixels of apparent overlap. Candidate selection
+        permits only a tightly bounded amount of this numerical noise. Before
+        constructing the target residual, assign that noise to one room by
+        trimming the room with the most area above its required minimum.
+        """
+
+        room_ids = sorted(optimized)
+        for first_index, first_id in enumerate(room_ids):
+            for second_id in room_ids[first_index + 1 :]:
+                overlap = optimized[first_id].intersection(optimized[second_id])
+                overlap_area = float(overlap.area)
+                if overlap_area <= GEOMETRY_TOLERANCE_PIXELS:
+                    continue
+                if overlap_area > self.maximum_raster_overlap_pixels + 1e-6:
+                    return (
+                        f"rooms {first_id} and {second_id} overlap by "
+                        f"{overlap_area:.2f}px²"
+                    )
+
+                removal_order = sorted(
+                    (first_id, second_id),
+                    key=lambda room_id: (
+                        optimized[room_id].area - minimums[room_id]
+                    ),
+                    reverse=True,
+                )
+                repaired = False
+                for room_id in removal_order:
+                    candidate = polygon_only(optimized[room_id].difference(overlap))
+                    if candidate is None or candidate.interiors:
+                        continue
+                    if candidate.area + 1e-6 < minimums[room_id]:
+                        continue
+                    optimized[room_id] = candidate
+                    repaired = True
+                    break
+
+                if not repaired:
+                    return (
+                        f"could not repair the {overlap_area:.2f}px² raster "
+                        f"overlap between rooms {first_id} and {second_id}"
+                    )
+
+        return None

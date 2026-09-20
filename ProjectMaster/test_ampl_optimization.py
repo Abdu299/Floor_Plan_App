@@ -11,6 +11,7 @@ from detection_pipeline import DetectionPipeline
 from optimization.ampl_room_optimizer import AmplRoomOptimizer
 from optimization.global_placement_optimizer import GlobalPlacementOptimizer
 from optimization.room_partition import RoomPartitionBuilder
+from optimization.shared_wall_optimizer import SharedWallPushOptimizer
 
 
 def parse_args():
@@ -20,9 +21,12 @@ def parse_args():
     parser.add_argument("--output-dir", type=Path, default=Path("optimization_test"))
     parser.add_argument(
         "--optimizer",
-        choices=("placement", "wall"),
-        default="placement",
-        help="placement preserves whole-room shapes; wall uses the older strip-transfer model",
+        choices=("push", "placement", "wall"),
+        default="push",
+        help=(
+            "push moves shared walls and forces non-target rooms to their minima; "
+            "placement preserves room shapes; wall uses the older strip-transfer model"
+        ),
     )
     parser.add_argument("--min-ratio", type=float, default=0.60)
     parser.add_argument("--step", type=int, default=5)
@@ -345,7 +349,12 @@ def main():
     normalized_result = partition_result.detection_result
     min_areas_m2 = parse_min_area_values(args.min_area_m2)
 
-    if args.optimizer == "placement":
+    if args.optimizer == "push":
+        optimizer = SharedWallPushOptimizer(
+            solver="highs",
+            minimum_area_ratio=args.min_ratio,
+        )
+    elif args.optimizer == "placement":
         optimizer = GlobalPlacementOptimizer(
             solver="highs",
             minimum_area_ratio=args.min_ratio,
