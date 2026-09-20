@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from collections import defaultdict
-from math import hypot, sqrt
+from dataclasses import dataclass
+from math import hypot, log, sqrt
 from typing import Any
 
 from amplpy import AMPL, modules
@@ -28,11 +28,22 @@ class PlacementCandidate:
     candidate_id: int
     room_id: int
     area_ratio: float
-    scale_factor: float
+    scale_x: float
+    scale_y: float
     translation_x: float
     translation_y: float
     movement_pixels: float
     polygon: Polygon
+
+    @property
+    def scale_factor(self) -> float:
+        """Equivalent uniform scale retained for backwards-compatible JSON."""
+
+        return sqrt(self.scale_x * self.scale_y)
+
+    @property
+    def aspect_distortion(self) -> float:
+        return abs(log(self.scale_x / self.scale_y))
 
 
 @dataclass
@@ -66,6 +77,9 @@ class GlobalPlacementResult:
                     "roomId": room_id,
                     "areaRatio": candidate.area_ratio,
                     "scaleFactor": candidate.scale_factor,
+                    "scaleX": candidate.scale_x,
+                    "scaleY": candidate.scale_y,
+                    "aspectDistortion": candidate.aspect_distortion,
                     "translationX": candidate.translation_x,
                     "translationY": candidate.translation_y,
                     "movementPixels": candidate.movement_pixels,
@@ -73,7 +87,7 @@ class GlobalPlacementResult:
             )
 
         return {
-            "optimizer": "global-scale-and-place",
+            "optimizer": "topology-preserving-scale-and-place",
             "targetRoomId": self.target_room_id,
             "targetRoomName": self.target_room_name,
             "solveResult": self.solve_result,
@@ -112,10 +126,10 @@ class GlobalPlacementOptimizer:
     """Scale and reposition complete rooms, then give the residual to the target.
 
     AMPL selects one discrete placement candidate for every non-target room.
-    Each candidate is a uniformly scaled copy of the normalized room polygon,
-    so its proportions are preserved. Pairwise conflict constraints prevent
-    overlaps. The target is reconstructed as the building boundary minus all
-    selected non-target rooms, which guarantees complete area coverage.
+    Each candidate is a controlled scale-and-translation of a normalized room.
+    Original adjacencies between non-target rooms are preserved so the target
+    cannot leak into every gap created by independent shrinking. The target is
+    reconstructed as the building boundary minus all selected non-target rooms.
     """
 
     def __init__(
@@ -125,8 +139,13 @@ class GlobalPlacementOptimizer:
         placement_step_pixels: int = 20,
         max_movement_pixels: int = 120,
         scale_level_count: int = 5,
-        boundary_contact_tolerance_pixels: float = 3.0,
+        boundary_contact_tolerance_pixels: float = 8.0,
+        adjacency_contact_tolerance_pixels: float = 1.0,
         minimum_boundary_contact_pixels: float = 2.0,
+        preserve_original_adjacency: bool = True,
+        minimum_preserved_adjacency_ratio: float = 0.05,
+        minimum_target_bbox_fill_ratio: float = 0.55,
+        maximum_aspect_ratio_change: float = 1.75,
         max_invalid_solutions: int = 250,
     ):
         if not 0 < minimum_area_ratio <= 1:
@@ -135,10 +154,24 @@ class GlobalPlacementOptimizer:
             raise ValueError("placement_step_pixels must be greater than zero")
         if max_movement_pixels < 0:
             raise ValueError("max_movement_pixels cannot be negative")
+        if boundary_contact_tolerance_pixels < 0:
+            raise ValueError("boundary_contact_tolerance_pixels cannot be negative")
+        if adjacency_contact_tolerance_pixels < 0:
+            raise ValueError("adjacency_contact_tolerance_pixels cannot be negative")
         if scale_level_count <= 0:
             raise ValueError("scale_level_count must be greater than zero")
         if max_invalid_solutions < 0:
             raise ValueError("max_invalid_solutions cannot be negative")
+        if not 0 <= minimum_preserved_adjacency_ratio <= 1:
+            raise ValueError(
+                "minimum_preserved_adjacency_ratio must be in the interval [0, 1]"
+            )
+        if not 0 < minimum_target_bbox_fill_ratio <= 1:
+            raise ValueError(
+                "minimum_target_bbox_fill_ratio must be in the interval (0, 1]"
+            )
+        if maximum_aspect_ratio_change < 1:
+            raise ValueError("maximum_aspect_ratio_change must be at least one")
 
         self.solver = solver
         self.minimum_area_ratio = float(minimum_area_ratio)
@@ -148,9 +181,20 @@ class GlobalPlacementOptimizer:
         self.boundary_contact_tolerance_pixels = float(
             boundary_contact_tolerance_pixels
         )
+        self.adjacency_contact_tolerance_pixels = float(
+            adjacency_contact_tolerance_pixels
+        )
         self.minimum_boundary_contact_pixels = float(
             minimum_boundary_contact_pixels
         )
+        self.preserve_original_adjacency = bool(preserve_original_adjacency)
+        self.minimum_preserved_adjacency_ratio = float(
+            minimum_preserved_adjacency_ratio
+        )
+        self.minimum_target_bbox_fill_ratio = float(
+            minimum_target_bbox_fill_ratio
+        )
+        self.maximum_aspect_ratio_change = float(maximum_aspect_ratio_change)
         self.max_invalid_solutions = int(max_invalid_solutions)
 
     def optimize(
@@ -179,7 +223,14 @@ class GlobalPlacementOptimizer:
             target_id=target_id,
             minimums=minimums,
         )
-        conflicts = self._find_conflicts(candidates)
+        preserved_adjacencies = self._find_preserved_adjacencies(
+            rooms=rooms,
+            target_id=target_id,
+        )
+        conflicts = self._find_conflicts(
+            candidates,
+            preserved_adjacencies,
+        )
         forbidden_selections: list[set[int]] = []
         last_invalid_reason = ""
 
@@ -311,72 +362,74 @@ class GlobalPlacementOptimizer:
             minimum_ratio = min(1.0, minimums[room_id] / original_area)
             ratios = self._scale_ratios(minimum_ratio)
             room_candidates: list[PlacementCandidate] = []
-            seen: set[tuple[float, float, float]] = set()
+            seen: set[tuple[float, float, float, float]] = set()
 
             for ratio in ratios:
-                factor = sqrt(ratio)
-                scaled = affinity.scale(
-                    original,
-                    xfact=factor,
-                    yfact=factor,
-                    origin=(original.centroid.x, original.centroid.y),
-                )
+                for scale_x, scale_y in self._scale_pairs(ratio):
+                    scaled = affinity.scale(
+                        original,
+                        xfact=scale_x,
+                        yfact=scale_y,
+                        origin=(original.centroid.x, original.centroid.y),
+                    )
 
-                for dx, dy in self._translation_options(
-                    original=original,
-                    scaled=scaled,
-                    boundary=boundary,
-                ):
-                    key = (round(ratio, 8), round(dx, 5), round(dy, 5))
-                    if key in seen:
-                        continue
-                    seen.add(key)
-
-                    transformed = affinity.translate(scaled, xoff=dx, yoff=dy)
-                    outside_area = float(transformed.difference(boundary).area)
-                    if outside_area > transformed.area * 0.01:
-                        continue
-                    # Normalized image polygons contain one-pixel stair steps
-                    # along exterior walls. Uniform scaling changes the phase
-                    # of those steps, so an otherwise valid anchored room can
-                    # protrude by a few hundred pixels out of a 100k+ px room.
-                    # Clip only this sub-1% raster artefact to the fixed shell.
-                    polygon = polygon_only(transformed.intersection(boundary))
-                    if polygon is None:
-                        continue
-                    if polygon.interiors or not polygon.is_valid:
-                        continue
-                    if polygon.area + 1e-6 < minimums[room_id]:
-                        continue
-
-                    # The selected room keeps its complete original footprint
-                    # and grows into newly released space.
-                    if polygon.intersection(rooms[target_id]["polygon"]).area > (
-                        GEOMETRY_TOLERANCE_PIXELS
-                    ):
-                        continue
-
-                    if not self._preserves_exterior_anchor(
+                    for dx, dy in self._translation_options(
                         original=original,
-                        candidate=polygon,
+                        scaled=scaled,
                         boundary=boundary,
                     ):
-                        continue
-
-                    movement = hypot(dx, dy)
-                    room_candidates.append(
-                        PlacementCandidate(
-                            candidate_id=next_id,
-                            room_id=room_id,
-                            area_ratio=float(polygon.area / original_area),
-                            scale_factor=factor,
-                            translation_x=float(dx),
-                            translation_y=float(dy),
-                            movement_pixels=float(movement),
-                            polygon=polygon,
+                        key = (
+                            round(scale_x, 8),
+                            round(scale_y, 8),
+                            round(dx, 5),
+                            round(dy, 5),
                         )
-                    )
-                    next_id += 1
+                        if key in seen:
+                            continue
+                        seen.add(key)
+
+                        transformed = affinity.translate(scaled, xoff=dx, yoff=dy)
+                        outside_area = float(transformed.difference(boundary).area)
+                        if outside_area > transformed.area * 0.01:
+                            continue
+                        # Image-derived exterior walls contain one-pixel stair
+                        # steps. Clip only sub-1% protrusions to the fixed shell.
+                        polygon = polygon_only(transformed.intersection(boundary))
+                        if polygon is None:
+                            continue
+                        if polygon.interiors or not polygon.is_valid:
+                            continue
+                        if polygon.area + 1e-6 < minimums[room_id]:
+                            continue
+
+                        # Preserve the complete original target footprint.
+                        if polygon.intersection(rooms[target_id]["polygon"]).area > (
+                            GEOMETRY_TOLERANCE_PIXELS
+                        ):
+                            continue
+
+                        if not self._preserves_exterior_anchor(
+                            original=original,
+                            candidate=polygon,
+                            boundary=boundary,
+                        ):
+                            continue
+
+                        movement = hypot(dx, dy)
+                        room_candidates.append(
+                            PlacementCandidate(
+                                candidate_id=next_id,
+                                room_id=room_id,
+                                area_ratio=float(polygon.area / original_area),
+                                scale_x=scale_x,
+                                scale_y=scale_y,
+                                translation_x=float(dx),
+                                translation_y=float(dy),
+                                movement_pixels=float(movement),
+                                polygon=polygon,
+                            )
+                        )
+                        next_id += 1
 
             if not room_candidates:
                 raise RuntimeError(
@@ -406,6 +459,22 @@ class GlobalPlacementOptimizer:
         )
         return sorted(set(ratios))
 
+    def _scale_pairs(self, area_ratio: float) -> list[tuple[float, float]]:
+        """Create uniform and one-axis-preserving shapes for one area ratio."""
+
+        uniform = sqrt(area_ratio)
+        pairs = [
+            (uniform, uniform),
+            (1.0, area_ratio),
+            (area_ratio, 1.0),
+        ]
+        return [
+            (scale_x, scale_y)
+            for scale_x, scale_y in pairs
+            if max(scale_x / scale_y, scale_y / scale_x)
+            <= self.maximum_aspect_ratio_change + 1e-9
+        ]
+
     def _translation_options(
         self,
         original: Polygon,
@@ -433,17 +502,17 @@ class GlobalPlacementOptimizer:
             offsets.append(0)
 
         if touches_left:
-            x_values = [bminx - sminx]
+            x_values = [ominx - sminx]
         elif touches_right:
-            x_values = [bmaxx - smaxx]
+            x_values = [omaxx - smaxx]
         else:
             x_values = [float(value) for value in offsets]
             x_values.extend([ominx - sminx, omaxx - smaxx, 0.0])
 
         if touches_top:
-            y_values = [bminy - sminy]
+            y_values = [ominy - sminy]
         elif touches_bottom:
-            y_values = [bmaxy - smaxy]
+            y_values = [omaxy - smaxy]
         else:
             y_values = [float(value) for value in offsets]
             y_values.extend([ominy - sminy, omaxy - smaxy, 0.0])
@@ -463,9 +532,29 @@ class GlobalPlacementOptimizer:
         candidate_contact = candidate.boundary.intersection(boundary.boundary).length
         return candidate_contact >= self.minimum_boundary_contact_pixels
 
-    @staticmethod
+    def _find_preserved_adjacencies(
+        self,
+        rooms: dict[int, dict[str, Any]],
+        target_id: int,
+    ) -> dict[tuple[int, int], float]:
+        if not self.preserve_original_adjacency:
+            return {}
+
+        room_ids = sorted(room_id for room_id in rooms if room_id != target_id)
+        result: dict[tuple[int, int], float] = {}
+        for index, first_id in enumerate(room_ids):
+            for second_id in room_ids[index + 1 :]:
+                length = rooms[first_id]["polygon"].boundary.intersection(
+                    rooms[second_id]["polygon"].boundary
+                ).length
+                if length >= self.minimum_boundary_contact_pixels:
+                    result[(first_id, second_id)] = float(length)
+        return result
+
     def _find_conflicts(
+        self,
         candidates: list[PlacementCandidate],
+        preserved_adjacencies: dict[tuple[int, int], float],
     ) -> list[tuple[int, int]]:
         conflicts: list[tuple[int, int]] = []
         for first_index, first in enumerate(candidates):
@@ -475,6 +564,24 @@ class GlobalPlacementOptimizer:
                 if first.polygon.intersection(second.polygon).area > (
                     GEOMETRY_TOLERANCE_PIXELS
                 ):
+                    conflicts.append((first.candidate_id, second.candidate_id))
+                    continue
+
+                room_pair = tuple(sorted((first.room_id, second.room_id)))
+                original_length = preserved_adjacencies.get(room_pair)
+                if original_length is None:
+                    continue
+
+                required_length = max(
+                    self.minimum_boundary_contact_pixels,
+                    original_length * self.minimum_preserved_adjacency_ratio,
+                )
+                near_contact = first.polygon.boundary.buffer(
+                    self.adjacency_contact_tolerance_pixels,
+                    cap_style=2,
+                    join_style=2,
+                ).intersection(second.polygon.boundary).length
+                if near_contact < required_length:
                     conflicts.append((first.candidate_id, second.candidate_id))
         return conflicts
 
@@ -502,6 +609,7 @@ class GlobalPlacementOptimizer:
             param candidate_room {C} integer;
             param candidate_area {C} >= 0;
             param candidate_movement {C} >= 0;
+            param candidate_distortion {C} >= 0;
             param building_area >= 0;
 
             var choose {C} binary;
@@ -516,7 +624,8 @@ class GlobalPlacementOptimizer:
 
             maximize TargetAreaThenMovement:
                 target_area
-                - 0.000001 * sum {c in C} candidate_movement[c] * choose[c];
+                - 0.000001 * sum {c in C} candidate_movement[c] * choose[c]
+                - 0.000001 * sum {c in C} candidate_distortion[c] * choose[c];
             """
         )
 
@@ -541,6 +650,11 @@ class GlobalPlacementOptimizer:
         data_lines.extend([";", "param candidate_movement :="])
         data_lines.extend(
             f"{candidate.candidate_id} {candidate.movement_pixels:.10f}"
+            for candidate in candidates
+        )
+        data_lines.extend([";", "param candidate_distortion :="])
+        data_lines.extend(
+            f"{candidate.candidate_id} {candidate.aspect_distortion:.10f}"
             for candidate in candidates
         )
         data_lines.append(";")
@@ -676,6 +790,17 @@ class GlobalPlacementOptimizer:
 
         if not target.buffer(GEOMETRY_TOLERANCE_PIXELS).covers(target_seed):
             return None, "the residual no longer contains the original target room"
+
+        minimum_x, minimum_y, maximum_x, maximum_y = target.bounds
+        bounding_box_area = (maximum_x - minimum_x) * (maximum_y - minimum_y)
+        bbox_fill_ratio = target.area / bounding_box_area if bounding_box_area > 0 else 0
+        if bbox_fill_ratio + 1e-9 < self.minimum_target_bbox_fill_ratio:
+            return (
+                None,
+                "the target room is too spread out: bounding-box fill ratio "
+                f"{bbox_fill_ratio:.3f} is below "
+                f"{self.minimum_target_bbox_fill_ratio:.3f}",
+            )
 
         optimized[target_id] = target
         union = unary_union(list(optimized.values()))

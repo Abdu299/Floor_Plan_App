@@ -450,11 +450,12 @@ def main():
     selected_placements = getattr(optimization_result, "selected_placements", {})
     if selected_placements:
         print()
-        print("Selected proportional room placements:")
+        print("Selected topology-preserving room placements:")
         for room_id, candidate in sorted(selected_placements.items()):
             print(
                 f"  Room {room_id}: area ratio {candidate.area_ratio:.4f}, "
-                f"dimension scale {candidate.scale_factor:.4f}, "
+                f"x-scale {candidate.scale_x:.4f}, "
+                f"y-scale {candidate.scale_y:.4f}, "
                 f"movement {candidate.movement_pixels:.2f}px"
             )
 
