@@ -9,6 +9,7 @@ import numpy as np
 
 from detection_pipeline import DetectionPipeline
 from optimization.ampl_room_optimizer import AmplRoomOptimizer
+from optimization.global_placement_optimizer import GlobalPlacementOptimizer
 from optimization.room_partition import RoomPartitionBuilder
 
 
@@ -17,9 +18,18 @@ def parse_args():
     parser.add_argument("image", type=Path)
     parser.add_argument("--target-room", required=True)
     parser.add_argument("--output-dir", type=Path, default=Path("optimization_test"))
+    parser.add_argument(
+        "--optimizer",
+        choices=("placement", "wall"),
+        default="placement",
+        help="placement preserves whole-room shapes; wall uses the older strip-transfer model",
+    )
     parser.add_argument("--min-ratio", type=float, default=0.60)
     parser.add_argument("--step", type=int, default=5)
     parser.add_argument("--max-expansion", type=int, default=250)
+    parser.add_argument("--placement-step", type=int, default=20)
+    parser.add_argument("--max-movement", type=int, default=120)
+    parser.add_argument("--scale-levels", type=int, default=5)
     parser.add_argument("--partition-gap", type=float)
     parser.add_argument("--pixels-per-metre", type=float)
     parser.add_argument("--min-area-m2", action="append", default=[])
@@ -63,9 +73,8 @@ def polygon_points(points):
     return array.reshape((-1, 1, 2))
 
 
-def shapely_points(polygon):
-    coordinates = list(polygon.exterior.coords)
-
+def shapely_ring_points(ring):
+    coordinates = list(ring.coords)
     return np.array(
         [
             [
@@ -219,7 +228,7 @@ def draw_partition_layout(shape, result, target_room_id):
 def draw_optimized_layout(shape, optimization_result):
     height, width = shape[:2]
     output = np.full((height, width, 3), 255, dtype=np.uint8)
-    boundary = shapely_points(optimization_result.boundary)
+    boundary = shapely_ring_points(optimization_result.boundary.exterior)
 
     cv2.fillPoly(
         output,
@@ -230,15 +239,23 @@ def draw_optimized_layout(shape, optimization_result):
 
     for room_id in sorted(optimization_result.rooms):
         room = optimization_result.rooms[room_id]
-        polygon = shapely_points(room.optimized_polygon)
+        polygon = shapely_ring_points(room.optimized_polygon.exterior)
         color = room_color(room_id)
 
+        room_mask = np.zeros((height, width), dtype=np.uint8)
         cv2.fillPoly(
-            output,
+            room_mask,
             [polygon],
-            color,
+            255,
             cv2.LINE_AA,
         )
+        hole_polygons = [
+            shapely_ring_points(ring)
+            for ring in room.optimized_polygon.interiors
+        ]
+        if hole_polygons:
+            cv2.fillPoly(room_mask, hole_polygons, 0, cv2.LINE_AA)
+        output[room_mask > 0] = color
 
         border = (
             (0, 0, 255)
@@ -256,6 +273,15 @@ def draw_optimized_layout(shape, optimization_result):
             thickness,
             cv2.LINE_AA,
         )
+        if hole_polygons:
+            cv2.polylines(
+                output,
+                hole_polygons,
+                True,
+                border,
+                thickness,
+                cv2.LINE_AA,
+            )
 
         point = room.optimized_polygon.representative_point()
         label = f"{room.room_id}. {room.name}"
@@ -319,12 +345,21 @@ def main():
     normalized_result = partition_result.detection_result
     min_areas_m2 = parse_min_area_values(args.min_area_m2)
 
-    optimizer = AmplRoomOptimizer(
-        solver="highs",
-        expansion_step_pixels=args.step,
-        max_expansion_pixels=args.max_expansion,
-        minimum_area_ratio=args.min_ratio,
-    )
+    if args.optimizer == "placement":
+        optimizer = GlobalPlacementOptimizer(
+            solver="highs",
+            minimum_area_ratio=args.min_ratio,
+            placement_step_pixels=args.placement_step,
+            max_movement_pixels=args.max_movement,
+            scale_level_count=args.scale_levels,
+        )
+    else:
+        optimizer = AmplRoomOptimizer(
+            solver="highs",
+            expansion_step_pixels=args.step,
+            max_expansion_pixels=args.max_expansion,
+            minimum_area_ratio=args.min_ratio,
+        )
 
     optimization_result = optimizer.optimize(
         detection_result=normalized_result,
@@ -411,6 +446,31 @@ def main():
             f"{room.optimized_area_pixels:.2f} px², "
             f"minimum {room.minimum_area_pixels:.2f} px²"
         )
+
+    selected_placements = getattr(optimization_result, "selected_placements", {})
+    if selected_placements:
+        print()
+        print("Selected proportional room placements:")
+        for room_id, candidate in sorted(selected_placements.items()):
+            print(
+                f"  Room {room_id}: area ratio {candidate.area_ratio:.4f}, "
+                f"dimension scale {candidate.scale_factor:.4f}, "
+                f"movement {candidate.movement_pixels:.2f}px"
+            )
+
+    selected_options = getattr(optimization_result, "selected_options", {})
+    if selected_options:
+        print()
+        print("Selected coordinated wall transfers:")
+        for option in sorted(
+            selected_options.values(),
+            key=lambda value: value.edge_id,
+        ):
+            print(
+                f"  Room {option.donor_id} -> Room {option.receiver_id}: "
+                f"{option.transfer_area_pixels:.2f} px² "
+                f"(depth {option.depth_pixels}px)"
+            )
 
     print()
     print(f"Detected layout: {detected_path}")
