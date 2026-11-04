@@ -55,6 +55,8 @@ class SharedWallResult:
     target_room_name: str
     solve_result: str
     slice_tree: SliceNode
+    cut_detection_tolerance_pixels: float
+    layout_was_rectangularized: bool
 
     @property
     def target_original_area_pixels(self) -> float:
@@ -81,6 +83,8 @@ class SharedWallResult:
             "targetOriginalAreaPixels": self.target_original_area_pixels,
             "targetOptimizedAreaPixels": self.target_optimized_area_pixels,
             "targetGainPixels": self.target_gain_pixels,
+            "cutDetectionTolerancePixels": self.cut_detection_tolerance_pixels,
+            "layoutWasRectangularized": self.layout_was_rectangularized,
             "buildingBoundary": {
                 "polygon": polygon_to_points(self.boundary),
                 "holes": polygon_holes_to_points(self.boundary),
@@ -158,7 +162,10 @@ class SharedWallPushOptimizer:
             minimum_area_square_metres or {},
             pixels_per_metre,
         )
-        tree = self._infer_slice_tree(rooms)
+        tree, used_cut_tolerance = self._infer_or_rectangularize_slice_tree(
+            rooms=rooms,
+            boundary=boundary,
+        )
         optimized_areas, solve_result = self._solve_areas_with_ampl(
             rooms=rooms,
             boundary=boundary,
@@ -195,7 +202,51 @@ class SharedWallPushOptimizer:
             target_room_name=rooms[target_id]["name"],
             solve_result=solve_result,
             slice_tree=optimized_tree,
+            cut_detection_tolerance_pixels=used_cut_tolerance,
+            layout_was_rectangularized=(
+                used_cut_tolerance > self.cut_detection_tolerance_pixels + 1e-9
+            ),
         )
+
+    def _infer_or_rectangularize_slice_tree(
+        self,
+        rooms: dict[int, dict[str, Any]],
+        boundary: Polygon,
+    ) -> tuple[SliceNode, float]:
+        try:
+            return (
+                self._infer_slice_tree(
+                    rooms,
+                    tolerance_pixels=self.cut_detection_tolerance_pixels,
+                ),
+                self.cut_detection_tolerance_pixels,
+            )
+        except ValueError as original_error:
+            minimum_x, minimum_y, maximum_x, maximum_y = boundary.bounds
+            maximum_rectangularization_tolerance = max(
+                self.cut_detection_tolerance_pixels,
+                min(maximum_x - minimum_x, maximum_y - minimum_y) * 0.10,
+            )
+            if maximum_rectangularization_tolerance <= (
+                self.cut_detection_tolerance_pixels + 1e-9
+            ):
+                raise original_error
+
+            try:
+                return (
+                    self._infer_slice_tree(
+                        rooms,
+                        tolerance_pixels=maximum_rectangularization_tolerance,
+                    ),
+                    float(maximum_rectangularization_tolerance),
+                )
+            except ValueError:
+                raise ValueError(
+                    "The normalized layout cannot be converted to a coordinated "
+                    "shared-wall partition, even after controlled "
+                    "rectangularization. Use --optimizer placement for this "
+                    "layout."
+                ) from original_error
 
     def _build_minimum_areas(
         self,
@@ -236,8 +287,13 @@ class SharedWallPushOptimizer:
     def _infer_slice_tree(
         self,
         rooms: dict[int, dict[str, Any]],
+        tolerance_pixels: float | None = None,
     ) -> SliceNode:
-        tolerance = self.cut_detection_tolerance_pixels
+        tolerance = (
+            self.cut_detection_tolerance_pixels
+            if tolerance_pixels is None
+            else float(tolerance_pixels)
+        )
 
         @lru_cache(maxsize=None)
         def build(room_ids: tuple[int, ...]) -> SliceNode:
