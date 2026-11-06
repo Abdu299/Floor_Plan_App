@@ -42,3 +42,6 @@ __pycache__/
 *.log
 TestResults/
 coverage/
+optimization_test_wall_90
+optimization_test_push_90
+optimization_test_placement_50
