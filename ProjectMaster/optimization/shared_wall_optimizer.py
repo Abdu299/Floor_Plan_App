@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+from pathlib import Path
 from functools import lru_cache
+from math import isfinite
 from typing import Any
 
 from amplpy import AMPL, modules
@@ -54,9 +56,12 @@ class SharedWallResult:
     target_room_id: int
     target_room_name: str
     solve_result: str
-    slice_tree: SliceNode
+    slice_tree: SliceNode | None
     cut_detection_tolerance_pixels: float
     layout_was_rectangularized: bool
+    fixtures: list[dict[str, Any]] = field(default_factory=list)
+    layout_constraints: dict[str, Any] = field(default_factory=dict)
+    solver_details: dict[str, Any] = field(default_factory=dict)
 
     @property
     def target_original_area_pixels(self) -> float:
@@ -85,6 +90,9 @@ class SharedWallResult:
             "targetGainPixels": self.target_gain_pixels,
             "cutDetectionTolerancePixels": self.cut_detection_tolerance_pixels,
             "layoutWasRectangularized": self.layout_was_rectangularized,
+            "fixtures": self.fixtures,
+            "layoutConstraints": self.layout_constraints,
+            "solverDetails": self.solver_details,
             "buildingBoundary": {
                 "polygon": polygon_to_points(self.boundary),
                 "holes": polygon_holes_to_points(self.boundary),
@@ -106,7 +114,7 @@ class SharedWallResult:
                 }
                 for room in sorted(self.rooms.values(), key=lambda value: value.room_id)
             ],
-            "sliceTree": self.slice_tree.to_dict(),
+            "sliceTree": self.slice_tree.to_dict() if self.slice_tree is not None else None,
             "selectedPlacements": [],
             "selectedWallTransfers": [],
             "selectedExpansions": [],
@@ -114,13 +122,12 @@ class SharedWallResult:
 
 
 class SharedWallPushOptimizer:
-    """Push a slicing floor plan's shared walls to exact minimum room areas.
+    """Optimize shared cuts subject to room minima and fixture geometry.
 
-    AMPL assigns the maximum feasible area to the selected room while every
-    other room is bounded below by its requested minimum. The inferred slicing
-    tree then converts those optimized areas into coordinated shared-wall cuts,
-    so the result remains a complete, gap-free partition instead of a set of
-    independently scaled room islands.
+    Grid positions are chosen jointly in a linear mixed-integer model. Other
+    rooms may remain above minimum when required to retain doors/openings.
+    Window replacements come from a calibrated configurable catalogue.
+    The old area-only helper remains for reference and is not called.
     """
 
     def __init__(
@@ -129,6 +136,23 @@ class SharedWallPushOptimizer:
         minimum_area_ratio: float = 0.60,
         cut_detection_tolerance_pixels: float = 8.0,
         area_tolerance_pixels: float = 2.0,
+        grid_step_pixels: float = 40.0,
+        fixture_margin_pixels: float = 5.0,
+        fixture_gap_pixels: float = 5.0,
+        mapping_tolerance_pixels: float = 30.0,
+        alignment_tolerance_pixels: float = 1.0,
+        geometry_tolerance_pixels: float = 0.05,
+        window_policy: str = "catalog",
+        window_catalog_path: str | Path | None = None,
+        fixture_overrides: dict[str, Any] | None = None,
+        window_resize_penalty: float = 0.005,
+        backend: str = "auto",
+        time_limit_seconds: float = 60.0,
+        mip_relative_gap: float = 0.001,
+        max_grid_cells: int = 12000,
+        max_invalid_solutions: int = 20,
+        fixture_position: str = "center",
+        maximum_target_growth: float | None = None,
     ):
         if not 0 < minimum_area_ratio <= 1:
             raise ValueError("minimum_area_ratio must be in the interval (0, 1]")
@@ -143,6 +167,34 @@ class SharedWallPushOptimizer:
             cut_detection_tolerance_pixels
         )
         self.area_tolerance_pixels = float(area_tolerance_pixels)
+        from .push_constraints import positive
+        if solver != "highs":
+            raise ValueError("Constrained push currently supports HiGHS only")
+        if window_policy not in {"catalog", "preserve"}:
+            raise ValueError("window_policy must be catalog or preserve")
+        if backend not in {"auto", "ampl", "scipy"}:
+            raise ValueError("backend must be auto, ampl, or scipy")
+        if fixture_position not in {"center","relative"}:
+            raise ValueError("fixture_position must be center or relative")
+        self.fixture_position = fixture_position
+        self.maximum_target_growth = None if maximum_target_growth is None else positive(maximum_target_growth,"maximum_target_growth",True)
+        self.grid_step_pixels = positive(grid_step_pixels,"grid_step_pixels")
+        self.fixture_margin_pixels = positive(fixture_margin_pixels,"fixture_margin_pixels",True)
+        self.fixture_gap_pixels = positive(fixture_gap_pixels,"fixture_gap_pixels",True)
+        self.mapping_tolerance_pixels = positive(mapping_tolerance_pixels,"mapping_tolerance_pixels")
+        self.alignment_tolerance_pixels = positive(alignment_tolerance_pixels,"alignment_tolerance_pixels",True)
+        self.geometry_tolerance_pixels = positive(geometry_tolerance_pixels,"geometry_tolerance_pixels")
+        self.time_limit_seconds = positive(time_limit_seconds,"time_limit_seconds")
+        self.window_resize_penalty = positive(window_resize_penalty,"window_resize_penalty",True)
+        self.mip_relative_gap = positive(mip_relative_gap,"mip_relative_gap",True)
+        if int(max_grid_cells) < 1 or int(max_invalid_solutions) < 0:
+            raise ValueError("Invalid grid cell limit or retry limit")
+        self.max_grid_cells = int(max_grid_cells)
+        self.max_invalid_solutions = int(max_invalid_solutions)
+        self.window_policy = window_policy
+        self.window_catalog_path = Path(window_catalog_path) if window_catalog_path else Path(__file__).with_name("window_catalog.json")
+        self.fixture_overrides = fixture_overrides or {}
+        self.backend = backend
 
     def optimize(
         self,
@@ -162,21 +214,29 @@ class SharedWallPushOptimizer:
             minimum_area_square_metres or {},
             pixels_per_metre,
         )
-        tree, used_cut_tolerance = self._infer_or_rectangularize_slice_tree(
-            rooms=rooms,
-            boundary=boundary,
-        )
-        optimized_areas, solve_result = self._solve_areas_with_ampl(
-            rooms=rooms,
-            boundary=boundary,
-            target_id=target_id,
-            minimums=minimums,
-        )
-        optimized_polygons, optimized_tree = self._realize_tree(
-            tree=tree,
-            boundary=boundary,
-            desired_areas=optimized_areas,
-        )
+        from .push_constraints import solve_push,preserve_zero_growth
+        if self.maximum_target_growth==0:
+            solution=preserve_zero_growth(self,detection_result,boundary,rooms,target_id,minimums,pixels_per_metre)
+            tree=None
+            used_cut_tolerance=0.0
+        else:
+            tree, used_cut_tolerance = self._infer_or_rectangularize_slice_tree(
+                rooms=rooms,
+                boundary=boundary,
+            )
+            solution = solve_push(self, detection_result, boundary, rooms, target_id,
+                                  minimums, tree, pixels_per_metre)
+        optimized_polygons = solution["polygons"]
+        def updated_tree(node, key="root"):
+            if node.is_leaf:
+                return node
+            return replace(node, optimized_cut=solution["cuts"][key],
+                           first=updated_tree(node.first,key+"L"),
+                           second=updated_tree(node.second,key+"R"))
+        optimized_tree = updated_tree(tree) if solution["cuts"] is not None else None
+        if optimized_tree is None:
+            used_cut_tolerance=0.0
+        solve_result = solution["details"]["status"] + " (" + solution["details"]["backend"] + ")"
         self._validate_partition(
             boundary=boundary,
             rooms=rooms,
@@ -206,7 +266,30 @@ class SharedWallPushOptimizer:
             layout_was_rectangularized=(
                 used_cut_tolerance > self.cut_detection_tolerance_pixels + 1e-9
             ),
+            fixtures=solution["fixtures"],
+            layout_constraints=solution["constraints"],
+            solver_details=solution["details"],
         )
+
+    def describe_constraints(self, detection_result, pixels_per_metre=None):
+        """Inspect automatically associated fixtures without running a solver."""
+        from .push_constraints import collect_fixtures, graph_report
+        boundary = extract_boundary_polygon(detection_result)
+        rooms = extract_room_polygons(detection_result,boundary)
+        if self.maximum_target_growth==0:
+            from .push_constraints import attach_original_shared_profiles
+            fixtures=collect_fixtures(detection_result,rooms,boundary,None,self,pixels_per_metre)
+            attach_original_shared_profiles(fixtures,rooms,self)
+            report={"fixtures":[fixture.to_dict() for fixture in fixtures],"sharedCuts":[],
+                    "roomGeometryPolicy":"preserve-normalized-polygons-exactly"}
+        else:
+            tree,_ = self._infer_or_rectangularize_slice_tree(rooms,boundary)
+            fixtures = collect_fixtures(detection_result,rooms,boundary,tree,self,pixels_per_metre)
+            report = graph_report(fixtures,tree)
+        report["controls"] = {"fixturePosition":self.fixture_position,
+                              "minimumAreaRatio":self.minimum_area_ratio,
+                              "maximumTargetGrowth":self.maximum_target_growth}
+        return report
 
     def _infer_or_rectangularize_slice_tree(
         self,
@@ -279,7 +362,7 @@ class SharedWallPushOptimizer:
                 )
             if room_id in minimum_area_pixels:
                 value = float(minimum_area_pixels[room_id])
-            if value <= 0:
+            if not isfinite(value) or value <= 0:
                 raise ValueError(f"Room {room_id} has a non-positive minimum area")
             result[room_id] = float(value)
         return result

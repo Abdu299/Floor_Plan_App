@@ -7,11 +7,11 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from detection_pipeline import DetectionPipeline
 from optimization.ampl_room_optimizer import AmplRoomOptimizer
 from optimization.global_placement_optimizer import GlobalPlacementOptimizer
 from optimization.room_partition import RoomPartitionBuilder
 from optimization.shared_wall_optimizer import SharedWallPushOptimizer
+from optimization.ampl_room_optimizer import extract_boundary_polygon, extract_room_polygons, resolve_target_room
 
 
 def parse_args():
@@ -24,7 +24,7 @@ def parse_args():
         choices=("push", "placement", "wall"),
         default="push",
         help=(
-            "push moves shared walls and forces non-target rooms to their minima; "
+            "push moves shared walls subject to fixtures and minimum room areas; "
             "placement preserves room shapes; wall uses the older strip-transfer model"
         ),
     )
@@ -40,6 +40,22 @@ def parse_args():
     parser.add_argument("--detection-conf", type=float, default=0.4)
     parser.add_argument("--room-conf", type=float, default=0.4)
     parser.add_argument("--object-conf", type=float, default=0.3)
+    parser.add_argument("--detections-json", type=Path, help="Reuse saved detection JSON and skip model loading")
+    parser.add_argument("--constraints-only", action="store_true", help="For push: save constraints overlay/JSON without solving")
+    parser.add_argument("--push-step", type=float, default=40.0, help="Maximum grid spacing in image pixels; smaller is finer/slower")
+    parser.add_argument("--fixture-margin", type=float, default=5.0, help="Required wall length beyond each end of a fixture, pixels")
+    parser.add_argument("--fixture-gap", type=float, default=5.0)
+    parser.add_argument("--fixture-overrides", type=Path, help="JSON mapping door:ID/opening:ID/window:ID to overrides")
+    parser.add_argument("--fixture-map-tolerance", type=float, default=30.0)
+    parser.add_argument("--window-policy", choices=("catalog","preserve"), default="catalog")
+    parser.add_argument("--window-catalog", type=Path)
+    parser.add_argument("--window-resize-penalty", type=float, default=0.005, help="Area-fraction cost for replacing one preferred window with the smallest option")
+    parser.add_argument("--push-backend", choices=("auto","ampl","scipy"), default="auto")
+    parser.add_argument("--push-time-limit", type=float, default=180.0)
+    parser.add_argument("--push-mip-gap", type=float, default=0.001)
+    parser.add_argument("--push-max-cells", type=int, default=12000)
+    parser.add_argument("--fixture-position",choices=("center","relative"),default="center",help="Center fixtures within their available host walls, or preserve original fractional positions")
+    parser.add_argument("--max-target-growth",type=float,help="Cap target area growth, e.g. 0.20 means at most +20%%; other constraints still apply")
     return parser.parse_args()
 
 
@@ -316,6 +332,52 @@ def draw_optimized_layout(shape, optimization_result):
     return output
 
 
+def draw_fixture_lines(image, fixtures, original=False):
+    colors = {"door":(0,0,210),"opening":(0,140,255),"window":(220,70,0)}
+    for fixture in fixtures:
+        axis = fixture["axis"]
+        normal = fixture["wallCoordinate"]
+        start = fixture["originalStartPixels"] if original else fixture["optimizedStartPixels"]
+        width = fixture["originalWidthPixels"] if original else fixture["widthPixels"]
+        point_a = (start,normal) if axis=="x" else (normal,start)
+        point_b = (start+width,normal) if axis=="x" else (normal,start+width)
+        path = [point_a,point_b]
+        if not original and fixture.get("line"):
+            path = [(point["x"],point["y"]) for point in fixture["line"]]
+        elif original and fixture.get("hostBoundaryProfile"):
+            from shapely.geometry import LineString,box
+            from optimization.push_constraints import line_components
+            source = LineString([(point["x"],point["y"]) for point in fixture["hostBoundaryProfile"]])
+            bounds = source.bounds
+            clip = box(start,bounds[1]-1,start+width,bounds[3]+1) if axis=="x" else box(bounds[0]-1,start,bounds[2]+1,start+width)
+            along = 0 if axis=="x" else 1
+            for piece in line_components(source.intersection(clip)):
+                if piece.bounds[along]<=start+1e-5 and piece.bounds[along+2]>=start+width-1e-5:
+                    path = list(piece.coords)
+                    if path[0][along]>path[-1][along]: path.reverse()
+                    break
+        point_a,point_b = path[0],path[-1]
+        a,b = [(int(round(x)),int(round(y))) for x,y in (point_a,point_b)]
+        color = colors[fixture["kind"]]
+        margin = fixture.get("marginEachEndPixels",0)
+        padded_a = (int(round(start-margin)),int(round(normal))) if axis=="x" else (int(round(normal)),int(round(start-margin)))
+        padded_b = (int(round(start+width+margin)),int(round(normal))) if axis=="x" else (int(round(normal)),int(round(start+width+margin)))
+        cv2.line(image,padded_a,padded_b,(140,140,140),2,cv2.LINE_AA)
+        path_array = np.rint(np.asarray(path,dtype=float)).astype(np.int32).reshape((-1,1,2))
+        cv2.polylines(image,[path_array],False,(255,255,255),10,cv2.LINE_AA)
+        cv2.polylines(image,[path_array],False,color,5,cv2.LINE_AA)
+        for x,y in (a,b):
+            cv2.circle(image,(x,y),4,color,-1,cv2.LINE_AA)
+        label = f"{fixture['id']} {width:.1f}px"
+        if not original and fixture.get("selectedSize")!="original":
+            label += f" {fixture.get('selectedSize','')}"
+        (text_width,text_height),_ = cv2.getTextSize(label,cv2.FONT_HERSHEY_SIMPLEX,.45,1)
+        label_x = max(2,min(a[0]+5,image.shape[1]-text_width-3))
+        label_y = max(text_height+3,min(a[1]-8,image.shape[0]-3))
+        cv2.putText(image,label,(label_x,label_y),cv2.FONT_HERSHEY_SIMPLEX,.45,color,1,cv2.LINE_AA)
+    return image
+
+
 def main():
     args = parse_args()
     image_path = args.image.expanduser().resolve()
@@ -327,15 +389,24 @@ def main():
     if original is None:
         raise SystemExit(f"Could not read image: {image_path}")
 
-    pipeline = DetectionPipeline(
-        detection_conf=args.detection_conf,
-        room_conf=args.room_conf,
-        object_conf=args.object_conf,
-    )
-
-    detected_result, _ = pipeline.analyze_floor_plan(
-        image_path=str(image_path)
-    )
+    if args.constraints_only and args.optimizer != "push":
+        raise SystemExit("--constraints-only applies to --optimizer push")
+    if args.detections_json:
+        detected_result = json.loads(args.detections_json.read_text())
+        if "floorPlan" in detected_result:
+            detected_result = detected_result["floorPlan"]
+        dimensions = detected_result.get("image",{})
+        if dimensions.get("widthPixels",original.shape[1]) != original.shape[1] or dimensions.get("heightPixels",original.shape[0]) != original.shape[0]:
+            raise SystemExit("Cached detection dimensions do not match this image. Use detection JSON for this exact image size.")
+    else:
+        from detection_pipeline import DetectionPipeline
+        pipeline = DetectionPipeline(
+            detection_conf=args.detection_conf,
+            room_conf=args.room_conf,
+            object_conf=args.object_conf,
+        )
+        detected_result, _ = pipeline.analyze_floor_plan(image_path=str(image_path))
+    (output_dir/"00_detection_result.json").write_text(json.dumps(detected_result,indent=2))
 
     partition_builder = RoomPartitionBuilder(
         max_fill_distance_pixels=args.partition_gap,
@@ -353,7 +424,32 @@ def main():
         optimizer = SharedWallPushOptimizer(
             solver="highs",
             minimum_area_ratio=args.min_ratio,
+            grid_step_pixels=args.push_step,
+            fixture_margin_pixels=args.fixture_margin,
+            fixture_gap_pixels=args.fixture_gap,
+            mapping_tolerance_pixels=args.fixture_map_tolerance,
+            fixture_overrides=json.loads(args.fixture_overrides.read_text()) if args.fixture_overrides else None,
+            window_policy=args.window_policy,
+            window_catalog_path=args.window_catalog,
+            window_resize_penalty=args.window_resize_penalty,
+            backend=args.push_backend,
+            time_limit_seconds=args.push_time_limit,
+            mip_relative_gap=args.push_mip_gap,
+            max_grid_cells=args.push_max_cells,
+            fixture_position=args.fixture_position,
+            maximum_target_growth=args.max_target_growth,
         )
+        report = optimizer.describe_constraints(normalized_result,args.pixels_per_metre)
+        (output_dir/"push_constraints.json").write_text(json.dumps(report,indent=2))
+        target_id = resolve_target_room(extract_room_polygons(normalized_result,extract_boundary_polygon(normalized_result)),args.target_room)
+        overlay = draw_detected_layout(original,normalized_result,target_id)
+        draw_fixture_lines(overlay,report["fixtures"],original=True)
+        cv2.imwrite(str(output_dir/"04_push_constraints.png"),overlay)
+        if args.constraints_only:
+            cv2.imwrite(str(output_dir/"02_normalized_partition.png"),draw_partition_layout(original.shape,normalized_result,target_id))
+            (output_dir/"02_normalized_partition.json").write_text(json.dumps({"partition":partition_result.to_dict(),"floorPlan":normalized_result},indent=2))
+            print(f"Constraints saved to {output_dir}. Review all fixture widths/room assignments before solving.")
+            return
     elif args.optimizer == "placement":
         optimizer = GlobalPlacementOptimizer(
             solver="highs",
@@ -393,6 +489,8 @@ def main():
         original.shape,
         optimization_result,
     )
+    if args.optimizer == "push":
+        draw_fixture_lines(optimized_image,optimization_result.fixtures)
 
     detected_path = output_dir / "01_detected_layout.png"
     normalized_path = output_dir / "02_normalized_partition.png"
@@ -435,7 +533,11 @@ def main():
     print(f"Remaining unassigned pixels: {partition_result.remaining_unassigned_pixels}")
     print(f"Original overlap pixels: {partition_result.overlap_pixels}")
     print()
-    print(f"AMPL result: {optimization_result.solve_result}")
+    print(f"Optimization result: {optimization_result.solve_result}")
+    if args.optimizer == "push":
+        print("Solver details:",json.dumps(optimization_result.solver_details))
+        for fixture in optimization_result.fixtures:
+            print(f"  {fixture['id']}: {fixture['originalWidthPixels']:.2f} -> {fixture['widthPixels']:.2f}px, size={fixture['selectedSize']}, rooms={fixture['roomIds']}")
     print(
         f"Normalized target area: "
         f"{optimization_result.target_original_area_pixels:.2f} px²"

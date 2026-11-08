@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "description": "Configurable NorDan NTech module examples, not a Europe-wide popularity ranking or a building-compliance catalogue.",
+  "source": "https://cdnc.heyzine.com/flip-book/pdf/91fb58b298aa2e4c30630835152adad1298de0dd.pdf",
+  "sourceDate": "2026-04-01",
+  "measurementBasis": "outer frame width/height; installation allowance is added separately",
+  "installationAllowanceTotalMm": 30,
+  "windows": [
+    {"id": "M08x12", "moduleWidthMm": 800, "moduleHeightMm": 1200, "frameWidthMm": 788, "frameHeightMm": 1188},
+    {"id": "M10x12", "moduleWidthMm": 1000, "moduleHeightMm": 1200, "frameWidthMm": 988, "frameHeightMm": 1188},
+    {"id": "M12x12", "moduleWidthMm": 1200, "moduleHeightMm": 1200, "frameWidthMm": 1188, "frameHeightMm": 1188}
+  ]
+}
